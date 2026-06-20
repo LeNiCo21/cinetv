@@ -752,25 +752,35 @@ render('dashboard');
 // Register the service worker so the app installs and works offline.
 // Wrapped in a guard since this file may also run as a local double-click
 // (no http(s) origin), where service workers aren't available.
+//
+// Registered as early as possible (not waiting for the full `load` event,
+// which only fires once every resource — including the ~60KB embedded font
+// — has finished downloading). On a slower mobile connection that delay was
+// long enough that navigating straight to Paramètres and checking for
+// updates would run BEFORE registration had finished, surfacing a false
+// "non actif" error even though registration was simply still in flight.
+// window._swReadyPromise lets other code (checkForUpdatesNow) await the
+// same in-flight registration instead of racing it.
 window._swRegistrationError = null;
+window._swReadyPromise = null;
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      window._swRegistration = reg;
-    }).catch(err => {
-      // Surfaced (not swallowed) so "Vérifier les mises à jour" can show
-      // the actual reason instead of a generic "non actif" with no clue why.
-      window._swRegistrationError = err.message || String(err);
-      console.error('Service worker registration failed:', err);
-    });
+  window._swReadyPromise = navigator.serviceWorker.register('sw.js').then(reg => {
+    window._swRegistration = reg;
+    return reg;
+  }).catch(err => {
+    // Surfaced (not swallowed) so "Vérifier les mises à jour" can show
+    // the actual reason instead of a generic "non actif" with no clue why.
+    window._swRegistrationError = err.message || String(err);
+    console.error('Service worker registration failed:', err);
+    throw err;
+  });
 
-    // The service worker posts this message when it detects that a cached
-    // file differs from what's now on the server — i.e. a real update is
-    // available. Show a small banner instead of silently staying stale,
-    // which was the whole reason updates used to require a reinstall.
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data === 'CINETV_UPDATE_AVAILABLE') showUpdateBanner();
-    });
+  // The service worker posts this message when it detects that a cached
+  // file differs from what's now on the server — i.e. a real update is
+  // available. Show a small banner instead of silently staying stale,
+  // which was the whole reason updates used to require a reinstall.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data === 'CINETV_UPDATE_AVAILABLE') showUpdateBanner();
   });
 } else {
   window._swRegistrationError = !('serviceWorker' in navigator)
@@ -803,13 +813,21 @@ function applyUpdate() {
 
 // Manual "check for updates now" — used by the button in Paramètres for
 // people who don't want to wait for the automatic background check.
-function checkForUpdatesNow() {
+async function checkForUpdatesNow() {
   const log = document.getElementById('update-check-log');
   if (!('serviceWorker' in navigator)) {
     if(log) log.innerHTML = `<span style="color:var(--text-dim)">Non disponible dans ce navigateur.</span>`;
     return;
   }
   if(log) log.innerHTML = `<span style="color:var(--text-dim)">Vérification en cours...</span>`;
+
+  // Wait for the registration that was kicked off at page load, instead of
+  // racing it — this is what was causing the false "non actif" error when
+  // checking right after opening the app, before registration had finished.
+  if (window._swReadyPromise) {
+    try { await window._swReadyPromise; } catch(e) { /* fall through to the not-registered branch below */ }
+  }
+
   navigator.serviceWorker.getRegistration().then(reg => {
     if (!reg) {
       const reason = window._swRegistrationError
