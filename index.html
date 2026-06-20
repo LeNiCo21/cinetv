@@ -102,6 +102,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
   .form-row{grid-template-columns:1fr;}
   .stats-grid{grid-template-columns:repeat(2,1fr)!important;}
   div[style*="grid-template-columns:1fr 1fr 1fr"]{grid-template-columns:1fr 1fr!important;}
+  div[style*="grid-template-columns:1fr 1fr 1fr"] > .stat-card:last-child{grid-column:1 / -1;}
   div[style*="grid-template-columns:1fr 1fr;"]{grid-template-columns:1fr!important;}
   div[style*="grid-template-columns:repeat(4,1fr)"]{grid-template-columns:1fr 1fr!important;}
   div[style*="grid-template-columns:repeat(3,1fr)"]{grid-template-columns:1fr 1fr!important;}
@@ -755,23 +756,34 @@ render('dashboard');
 //
 // Registered as early as possible (not waiting for the full `load` event,
 // which only fires once every resource — including the ~60KB embedded font
-// — has finished downloading). On a slower mobile connection that delay was
-// long enough that navigating straight to Paramètres and checking for
-// updates would run BEFORE registration had finished, surfacing a false
-// "non actif" error even though registration was simply still in flight.
-// window._swReadyPromise lets other code (checkForUpdatesNow) await the
-// same in-flight registration instead of racing it.
+// — has finished downloading). window._swReadyPromise lets other code
+// (checkForUpdatesNow) await the same in-flight registration instead of
+// racing it.
+//
+// A registration that neither resolves nor rejects (just hangs forever) is
+// a real symptom some browsers exhibit when a stale/zombie service worker
+// from a previous version is still controlling the page. A timeout turns
+// that silent hang into a diagnosable message instead of an endless wait.
 window._swRegistrationError = null;
 window._swReadyPromise = null;
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window._swReadyPromise = navigator.serviceWorker.register('sw.js').then(reg => {
+  const registerPromise = navigator.serviceWorker.register('sw.js').then(reg => {
     window._swRegistration = reg;
     return reg;
   }).catch(err => {
-    // Surfaced (not swallowed) so "Vérifier les mises à jour" can show
-    // the actual reason instead of a generic "non actif" with no clue why.
     window._swRegistrationError = err.message || String(err);
     console.error('Service worker registration failed:', err);
+    throw err;
+  });
+
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('TIMEOUT')), 8000);
+  });
+
+  window._swReadyPromise = Promise.race([registerPromise, timeoutPromise]).catch(err => {
+    if (err.message === 'TIMEOUT' && !window._swRegistrationError) {
+      window._swRegistrationError = "L'enregistrement n'a pas répondu après 8 secondes — un ancien service worker bloqué en est probablement la cause. Essayez Réessayer, ou si ça persiste, fermez tous les onglets/l'app et rouvrez.";
+    }
     throw err;
   });
 
@@ -813,6 +825,26 @@ function applyUpdate() {
 
 // Manual "check for updates now" — used by the button in Paramètres for
 // people who don't want to wait for the automatic background check.
+async function fullServiceWorkerReset() {
+  const log = document.getElementById('sw-reset-log');
+  if (!confirm('Désinscrire le service worker et vider les caches de l\'app, puis recharger ? Vos données (films, séries...) ne sont pas touchées — elles ne sont pas stockées par le service worker.')) return;
+  if(log) log.innerHTML = `<span style="color:var(--text-dim)">Nettoyage en cours...</span>`;
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) await reg.unregister();
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      for (const key of keys) await caches.delete(key);
+    }
+    if(log) log.innerHTML = `<span style="color:var(--green)">✓ Nettoyage terminé. Rechargement...</span>`;
+    setTimeout(()=>location.reload(), 600);
+  } catch(e) {
+    if(log) log.innerHTML = `<span style="color:var(--red)">Erreur pendant le nettoyage : ${esc(e.message||String(e))}</span>`;
+  }
+}
+
 async function checkForUpdatesNow() {
   const log = document.getElementById('update-check-log');
   if (!('serviceWorker' in navigator)) {
@@ -3179,7 +3211,7 @@ function renderWrappedReport(d, narrative) {
 // The final "page" is the full static report (renderWrappedReport),
 // exactly what gets saved and re-shown when revisiting past bilans.
 // ============================================================
-function startWrappedReveal(d, narrative) {
+function startWrappedReveal(d, narrative, onClose) {
   const { heroHTML, slides, closingHTML } = buildWrappedSlides(d, narrative);
   // The reveal sequence: hero card, then each stat slide, then the closing
   // statement, then finally the full static report as the "landing" page.
@@ -3230,8 +3262,9 @@ function startWrappedReveal(d, narrative) {
 
   function closeWrappedReveal() {
     overlay.remove();
-    // Land on the saved, scrollable full report — same content the person
-    // will see every time they revisit this bilan later.
+    if(onClose) { onClose(); return; }
+    // Default behavior (real bilan generation): land on the saved,
+    // scrollable full report — same content shown when revisiting later.
     const cur = document.querySelector('.nav-item.active')?.dataset.page;
     if(cur==='wrapped' && window._wrappedPageDraw) window._wrappedPageDraw();
   }
@@ -3301,6 +3334,11 @@ function importPage(el) {
     </div>
     <button class="btn btn-secondary" onclick="checkForUpdatesNow()">🔄 Vérifier les mises à jour</button>
     <div id="update-check-log" style="font-size:13px;margin-top:10px"></div>
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
+      <div style="color:var(--text-dim);font-size:12px;margin-bottom:10px">Si la vérification reste bloquée sur une erreur, un service worker d'une ancienne version peut être coincé en arrière-plan. Ce bouton désinscrit tout service worker et vide les caches de l'app, puis recharge proprement.</div>
+      <button class="btn btn-danger btn-sm" onclick="fullServiceWorkerReset()">🧹 Nettoyage complet & rechargement</button>
+      <div id="sw-reset-log" style="font-size:13px;margin-top:8px"></div>
+    </div>
   </div>
   <div style="margin-top:24px" class="card">
     <div class="card-title">⚠️ Gérer les données</div>
@@ -3324,11 +3362,14 @@ function manualGenerateWrapped() {
   // Pure preview: does NOT touch DB.watchLog and does NOT save into DB.wrappeds.
   // This lets you check the report looks right without consuming the year's
   // data — the real bilan still gets generated normally on Dec 31, complete.
-  log.innerHTML = `<span style="color:var(--green)">✓ Aperçu généré ci-dessous — rien n'a été modifié ni enregistré.</span>`;
+  log.innerHTML = `<span style="color:var(--green)">✓ Aperçu généré — animation lancée ci-dessous, exactement comme pour un vrai bilan.</span>`;
   window._previewWrappedYear = year;
   window._previewWrappedData = data;
   window._previewWrappedNarrative = narrative;
-  renderWrappedPreviewModal(year, data, narrative);
+  // Same reveal animation as the real Dec 31 bilan; once finished (or skipped),
+  // land on the same static, scrollable preview modal as before — so the test
+  // tool shows the full real experience end to end: animation, then full report.
+  startWrappedReveal(data, narrative, () => renderWrappedPreviewModal(year, data, narrative));
 }
 
 function renderWrappedPreviewModal(year, data, narrative) {
@@ -3528,7 +3569,36 @@ function normalizeStatus(s){
   if(s.includes('annul')||s.includes('cancel')) return 'annulee';
   return 'terminee';
 }
-function exportDB(){const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='cinetv_backup.json';a.click();}
+async function exportDB(){
+  const json = JSON.stringify(DB,null,2);
+  const filename = 'cinetv_backup.json';
+  const blob = new Blob([json], {type:'application/json'});
+
+  // On mobile, a plain <a download> click silently saves to the default
+  // downloads folder with no confirmation dialog — surprising and easy to
+  // lose track of. Where supported, use the native Web Share sheet instead:
+  // it shows the OS's real "Enregistrer dans Fichiers / Partager" picker.
+  if (navigator.canShare) {
+    try {
+      const file = new File([blob], filename, {type:'application/json'});
+      if (navigator.canShare({ files:[file] })) {
+        await navigator.share({ files:[file], title:'Sauvegarde CinéTV', text:'Export des données CinéTV' });
+        return;
+      }
+    } catch(e) {
+      // User cancelled the share sheet, or share failed — fall through to
+      // the classic download link rather than leaving them with nothing.
+      if (e && e.name === 'AbortError') return; // explicit cancel: do nothing further
+    }
+  }
+
+  // Desktop / unsupported browsers: classic download link, which DOES show
+  // a proper save dialog (or goes to Downloads, depending on browser settings).
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+}
 function restoreDB(input){if(!input.files[0]) return;if(!confirm('Remplacer toutes les données ?')) return;const r=new FileReader();r.onload=e=>{try{DB=JSON.parse(e.target.result);saveDB();alert('Données restaurées.');render('dashboard');}catch(ex){alert('Fichier invalide.');}};r.readAsText(input.files[0]);}
 function clearDB(){if(!confirm('Effacer définitivement toutes les données ?')) return;DB={films:[],series:[],watchlist:[],sagas:[],watchLog:[],wrappeds:[]};saveDB();render('import');}
 
