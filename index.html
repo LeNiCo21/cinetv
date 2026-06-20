@@ -752,9 +752,17 @@ render('dashboard');
 // Register the service worker so the app installs and works offline.
 // Wrapped in a guard since this file may also run as a local double-click
 // (no http(s) origin), where service workers aren't available.
+window._swRegistrationError = null;
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      window._swRegistration = reg;
+    }).catch(err => {
+      // Surfaced (not swallowed) so "Vérifier les mises à jour" can show
+      // the actual reason instead of a generic "non actif" with no clue why.
+      window._swRegistrationError = err.message || String(err);
+      console.error('Service worker registration failed:', err);
+    });
 
     // The service worker posts this message when it detects that a cached
     // file differs from what's now on the server — i.e. a real update is
@@ -764,6 +772,10 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       if (event.data === 'CINETV_UPDATE_AVAILABLE') showUpdateBanner();
     });
   });
+} else {
+  window._swRegistrationError = !('serviceWorker' in navigator)
+    ? 'API Service Worker indisponible dans ce navigateur.'
+    : `Page chargée en ${location.protocol} — un service worker nécessite https.`;
 }
 
 function showUpdateBanner() {
@@ -799,11 +811,27 @@ function checkForUpdatesNow() {
   }
   if(log) log.innerHTML = `<span style="color:var(--text-dim)">Vérification en cours...</span>`;
   navigator.serviceWorker.getRegistration().then(reg => {
-    if (!reg) { if(log) log.innerHTML = `<span style="color:var(--text-dim)">Service worker non actif.</span>`; return; }
+    if (!reg) {
+      const reason = window._swRegistrationError
+        ? `Échec de l'enregistrement : ${esc(window._swRegistrationError)}`
+        : `Service worker pas encore enregistré.`;
+      if(log) log.innerHTML = `<span style="color:var(--red)">${reason}</span> <button class="btn btn-secondary btn-xs" id="sw-retry-btn" style="margin-left:6px">↻ Réessayer</button>`;
+      const retryBtn = document.getElementById('sw-retry-btn');
+      if(retryBtn) retryBtn.addEventListener('click', ()=>{
+        log.innerHTML = `<span style="color:var(--text-dim)">Nouvel essai...</span>`;
+        navigator.serviceWorker.register('sw.js').then(()=>{
+          log.innerHTML = `<span style="color:var(--green)">✓ Service worker enregistré avec succès.</span>`;
+        }).catch(err=>{
+          window._swRegistrationError = err.message || String(err);
+          log.innerHTML = `<span style="color:var(--red)">Toujours en échec : ${esc(window._swRegistrationError)}</span>`;
+        });
+      });
+      return;
+    }
     reg.update().then(() => {
       if(log) log.innerHTML = `<span style="color:var(--green)">✓ Vérification effectuée. Si une mise à jour existe, elle apparaîtra dans un bandeau en haut.</span>`;
-    }).catch(()=>{
-      if(log) log.innerHTML = `<span style="color:var(--red)">Erreur lors de la vérification.</span>`;
+    }).catch((err)=>{
+      if(log) log.innerHTML = `<span style="color:var(--red)">Erreur lors de la vérification : ${esc(err.message||String(err))}</span>`;
     });
   });
 }
