@@ -10,7 +10,7 @@
 // — that's what makes old caches get cleaned up on activate, which is the
 // piece that was missing before and required a full uninstall/reinstall to
 // see changes like updated icons.
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `cinetv-cache-${CACHE_VERSION}`;
 const ASSETS_TO_CACHE = [
   './',
@@ -62,8 +62,11 @@ self.addEventListener('fetch', (event) => {
           const responseClone = response.clone();
           cache.put(event.request, responseClone);
           // If we already had a cached copy and the network version differs,
-          // tell every open tab a new version is available.
-          if (cached) {
+          // tell every open tab a new version is available. Only compare
+          // text-based assets (html/js/json) — diffing binary files like
+          // PNGs as text is meaningless and wasteful.
+          const isTextAsset = /\.(html|js|json)$|\/$/.test(url.pathname);
+          if (cached && isTextAsset) {
             cached.clone().text().then(oldText => {
               response.clone().text().then(newText => {
                 if (oldText !== newText) {
