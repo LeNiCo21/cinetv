@@ -269,6 +269,10 @@ function loadDB() {
     if (!DB.sagas) DB.sagas = [];
     if (!DB.watchLog) DB.watchLog = []; // entries: {type:'film'|'episode', date: ISO timestamp, filmId?, serieId?, seasonIndex?, episodeIndex?}
     if (!DB.wrappeds) DB.wrappeds = []; // saved annual recaps: {year, generatedAt, data:{...}}
+    // Data saved before sync was introduced has no _lastModified — without
+    // this, it would read as timestamp 0, making ANY remote file look
+    // newer by comparison. This was the root cause of a real data-loss bug.
+    if (!DB._lastModified) DB._lastModified = Date.now();
   } catch(e) {}
 }
 function saveDB() {
@@ -3703,6 +3707,14 @@ async function driveUploadContent(payload) {
 }
 
 // Main entry point — called by the sidebar button.
+// Rough "size" of a DB snapshot, used to detect when a sync would replace
+// richer data with poorer data — this is what guards against ever silently
+// wiping out a real collection with an empty/smaller one.
+function dbItemCount(db) {
+  if(!db) return 0;
+  return (db.films?.length||0) + (db.series?.length||0) + (db.sagas?.length||0) + (db.watchlist?.length||0);
+}
+
 async function handleDriveSyncClick() {
   if(!driveConfigured()) {
     setDriveStatus('Synchro non configurée', 'error');
@@ -3719,24 +3731,58 @@ async function handleDriveSyncClick() {
     const remoteMeta = await driveGetFileMeta();
     const localTimestamp = DB._lastModified || 0;
     const remoteTimestamp = remoteMeta ? new Date(remoteMeta.modifiedTime).getTime() : 0;
+    const localCount = dbItemCount(DB);
 
     if(!remoteMeta) {
-      // Nothing on Drive yet — push local data.
+      // Nothing on Drive yet — push local data. Safe by definition: there's
+      // nothing to lose on the Drive side.
       await pushLocalToDrive();
-      setDriveStatus('Envoyé sur Drive ✓', 'ok');
-    } else if(remoteTimestamp > localTimestamp) {
-      // Drive has newer data (e.g. synced from another device) — pull it.
-      if(confirm('Une version plus récente a été trouvée sur Drive. Remplacer les données locales par celle-ci ?')) {
-        await pullFromDrive();
-        setDriveStatus('Données reçues de Drive ✓', 'ok');
+      setDriveStatus(`Envoyé sur Drive ✓ (${localCount} éléments)`, 'ok');
+      return;
+    }
+
+    // Always fetch the remote content itself (not just its date) so we can
+    // compare actual item counts, not just timestamps — timestamps alone
+    // were the root cause of a real data loss bug here.
+    const remoteData = await driveDownloadContent();
+    const remoteCount = dbItemCount(remoteData);
+
+    const remoteIsNewer = remoteTimestamp > localTimestamp;
+    const remoteIsSignificantlySmaller = localCount > 0 && remoteCount < localCount * 0.8;
+
+    if(remoteIsSignificantlySmaller) {
+      // Drive has noticeably less data than what's on this device — never
+      // auto-apply this. Always ask explicitly, with exact counts shown,
+      // regardless of which timestamp looks newer.
+      const proceed = confirm(
+        `⚠️ Attention : la version sur Drive contient moins d'éléments (${remoteCount}) que vos données actuelles (${localCount}).\n\n` +
+        `Écraser vos données locales avec celles de Drive ferait perdre des films/séries.\n\n` +
+        `Cliquez OK pour ENVOYER vos données locales vers Drive à la place (recommandé), ou Annuler pour ne rien faire.`
+      );
+      if(proceed) {
+        await pushLocalToDrive();
+        setDriveStatus(`Envoyé sur Drive ✓ (${localCount} éléments)`, 'ok');
+      } else {
+        setDriveStatus('Synchro annulée — aucune donnée modifiée', '');
+      }
+      return;
+    }
+
+    if(remoteIsNewer && remoteCount >= localCount) {
+      // Drive genuinely looks like a newer, equal-or-richer snapshot —
+      // likely synced from another device. Confirm with explicit counts.
+      if(confirm(`Une version plus récente a été trouvée sur Drive (${remoteCount} éléments, contre ${localCount} ici). Remplacer les données locales par celle-ci ?`)) {
+        DB = remoteData;
+        saveDB();
+        setDriveStatus(`Données reçues de Drive ✓ (${remoteCount} éléments)`, 'ok');
         render(document.querySelector('.nav-item.active')?.dataset.page || 'dashboard');
       } else {
         setDriveStatus('Synchro annulée', '');
       }
     } else {
-      // Local is newer or equal — push.
+      // Local is newer or at least as rich — push.
       await pushLocalToDrive();
-      setDriveStatus('Envoyé sur Drive ✓', 'ok');
+      setDriveStatus(`Envoyé sur Drive ✓ (${localCount} éléments)`, 'ok');
     }
   } catch(e) {
     console.error(e);
@@ -3749,13 +3795,6 @@ async function handleDriveSyncClick() {
 async function pushLocalToDrive() {
   saveDB();
   await driveUploadContent(DB);
-}
-async function pullFromDrive() {
-  const remote = await driveDownloadContent();
-  if(remote) {
-    DB = remote;
-    saveDB();
-  }
 }
 
 // Reflect connection state in the sidebar on load (best-effort, silent).
