@@ -121,9 +121,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
   .media-meta{font-size:11px;white-space:normal;overflow-wrap:break-word;line-height:1.5;}
   .media-actions{gap:5px;padding:8px 0 0;flex-wrap:wrap;width:100%;justify-content:flex-end;}
   .media-actions .btn{padding:6px 9px;font-size:12px;flex-shrink:0;}
-  .saga-film-row{flex-wrap:wrap;}
-  .saga-film-row > div[style*="flex-shrink:0"]{display:grid!important;grid-template-columns:1fr 1fr;gap:6px;width:100%;margin-top:8px;}
-  .saga-film-row > div[style*="flex-shrink:0"] .btn{width:100%;}
+  .saga-film-row{flex-wrap:wrap;align-items:flex-start;}
+  .saga-film-row > div[style*="flex-shrink:0"]{display:flex;gap:4px;width:100%;margin-top:8px;justify-content:flex-end;}
+  .saga-film-row > div[style*="flex-shrink:0"] .btn{padding:4px 7px;font-size:11px;width:auto;}
   .data-table{font-size:12px;}
   .data-table th,.data-table td{padding:7px 8px;}
 }
@@ -1932,15 +1932,6 @@ function seriesPage(el, actions) {
     <div class="media-list" id="series-list">${list.map(s=>serieRow(s,true)).join('')}</div>`;
 
     wireSearchBar('serie-search', search, v=>{ search=v; draw(); });
-
-    if(window._scrollToSerie) {
-      const targetId = window._scrollToSerie;
-      window._scrollToSerie = null;
-      const extra = document.getElementById('sextra-'+targetId);
-      if(extra) extra.style.display = 'block';
-      const target = document.getElementById('srow-'+targetId);
-      if(target) setTimeout(()=>target.scrollIntoView({behavior:'smooth',block:'start'}),100);
-    }
   }
   window.setSerieSort = m=>{ sortMode=m; draw(); };
   window.setStatusPriority = p=>{ statusPriority=p; draw(); };
@@ -1948,14 +1939,95 @@ function seriesPage(el, actions) {
   draw();
 }
 
-// Navigate to the Séries tab, expand the given serie's info panel, and
-// scroll it into view — mirrors goToSaga's behavior for sagas.
+// Opens the series detail modal directly — used from "Continuer le
+// visionnage" on the dashboard, mirroring goToSaga but going straight to
+// the modal instead of navigating to a page and expanding an inline panel
+// (which no longer exists now that series details live in a modal).
 function goToSerie(id) {
-  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
-  document.querySelector('[data-page="series"]').classList.add('active');
-  document.getElementById('topbar-title').textContent='Séries';
-  window._scrollToSerie = id;
-  render('series');
+  openSerieDetailModal(id);
+}
+
+// ============================================================
+// SERIE DETAIL MODAL — replaces the old in-place expand panel. Clicking a
+// series card opens this window with full info, expandable seasons (with
+// per-season Vu/Non vu), and the Modifier action. The card itself keeps
+// only the most-used actions (Vu/Non vu all, Abandonner, Supprimer) so the
+// row stays compact instead of growing a long inline panel.
+// ============================================================
+function openSerieDetailModal(id) {
+  const s = DB.series.find(x=>x.id===id);
+  if(!s) return;
+  document.getElementById('modal-container').innerHTML = renderSerieDetailModalHTML(s);
+}
+
+function renderSerieDetailModalHTML(s) {
+  const creators = joinNames(parseNames(s.creators));
+  const seen = serieSeenEps(s), total = serieTotalEps(s);
+  const pct = total ? Math.round(seen/total*100) : 0;
+  return `
+  <div class="modal-overlay" id="modal-overlay" onclick="if(event.target.id==='modal-overlay')closeModal()">
+    <div class="modal" style="max-width:680px">
+      <div class="modal-header">
+        <div class="modal-title">${esc(s.title)}${s.abandoned?' <span class="badge badge-gray" style="font-size:11px;vertical-align:middle">Abandonnée</span>':''}</div>
+        <button class="close-btn" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" id="serie-detail-body-${s.id}">
+        ${serieDetailBodyHTML(s)}
+      </div>
+      <div class="modal-footer" style="justify-content:space-between">
+        <button class="btn btn-secondary" onclick="closeModal();openSerieForm('${s.id}')">✏️ Modifier</button>
+        <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function serieDetailBodyHTML(s) {
+  const creators = joinNames(parseNames(s.creators));
+  const seen = serieSeenEps(s), total = serieTotalEps(s);
+  const pct = total ? Math.round(seen/total*100) : 0;
+  return `
+    <div style="display:flex;gap:16px;margin-bottom:18px">
+      <div class="media-poster-thumb" style="width:64px;height:94px;font-size:30px;flex-shrink:0">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;color:var(--text-dim)">${esc(creators)}</div>
+        <div style="margin-top:4px">${statusBadge(s.status)}</div>
+        <div style="margin-top:10px">
+          <div class="progress-bar"><div class="progress-fill ${pct===100?'green':'gold'}" style="width:${pct}%"></div></div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:3px">${seen}/${total} épisodes — ${pct}% • ${fmtDuration(serieSeenMin(s))} vues</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">
+      <div><div class="form-label">Années</div><div>${esc(s.years||'?')}</div></div>
+      <div><div class="form-label">Chaîne/Plateforme</div><div>${esc(joinNames(parseNames(s.platforms)))||'–'}</div></div>
+      <div><div class="form-label">Pays</div><div>${esc(joinNames(parseNames(s.countries)))||'–'}</div></div>
+      <div><div class="form-label">Durée moy. épisode</div><div>${s.episodeDuration||'–'} min</div></div>
+      <div><div class="form-label">Genre(s)</div><div>${parseNames(s.genres).length?esc(joinNames(parseNames(s.genres))):'–'}</div></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="card-title" style="font-size:14px;margin-bottom:0">Saisons & Épisodes</div>
+      <div style="display:flex;gap:6px">
+        ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="refreshSerieFromTmdbInModal('${s.id}')" title="Actualiser via TMDB">🔄</button>` : ''}
+        <button class="btn btn-green btn-xs" onclick="markSerieAll('${s.id}',true)">✓ Tout vu</button>
+        <button class="btn btn-secondary btn-xs" onclick="markSerieAll('${s.id}',false)">✗ Tout non vu</button>
+      </div>
+    </div>
+    <div id="seasons-tree-${s.id}">${seasonsTree(s)}</div>
+  `;
+}
+
+// Refresh just the modal body in place after an action, instead of closing
+// and reopening — keeps scroll position and open/closed season state.
+function refreshSerieDetailModal(sid) {
+  const s = DB.series.find(x=>x.id===sid); if(!s) return;
+  const body = document.getElementById('serie-detail-body-'+sid);
+  if(body) body.innerHTML = serieDetailBodyHTML(s);
+}
+
+async function refreshSerieFromTmdbInModal(sid) {
+  await refreshSerieFromTmdb(sid);
+  refreshSerieDetailModal(sid);
 }
 
 function statusBadge(s) {
@@ -1973,7 +2045,7 @@ function serieRow(s, showMarkEp) {
   const nextEpLabel = nextEp ? (s.seasons[nextEp.si]?.episodes[nextEp.ei]?.title ? `S${nextEp.s}E${nextEp.e} — ${s.seasons[nextEp.si].episodes[nextEp.ei].title}` : `S${nextEp.s}E${nextEp.e}`) : null;
 
   return `<div class="media-row" id="srow-${s.id}">
-    <div class="media-row-main" onclick="toggleSerieExtra('${s.id}')">
+    <div class="media-row-main" onclick="openSerieDetailModal('${s.id}')">
       <div class="media-poster-thumb">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
       <div class="media-info">
         <div class="media-title">${esc(s.title)}${s.abandoned?' <span class="badge badge-gray" style="font-size:10px;vertical-align:middle">Abandonnée</span>':''}</div>
@@ -1989,30 +2061,11 @@ function serieRow(s, showMarkEp) {
         </div>
       </div>
       <div class="media-actions" onclick="event.stopPropagation()">
-        ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="refreshSerieFromTmdb('${s.id}')" title="Actualiser via TMDB (nouvelles saisons/épisodes)">🔄</button>` : ''}
         <button class="btn btn-green btn-xs" onclick="markSerieAll('${s.id}',true)" title="Tout vu">✓</button>
         <button class="btn btn-secondary btn-xs" onclick="markSerieAll('${s.id}',false)" title="Tout non vu">✗</button>
-        <button class="btn btn-secondary btn-xs" onclick="openSerieForm('${s.id}')">✏️</button>
         <button class="btn btn-secondary btn-xs" onclick="toggleAbandoned('${s.id}')" title="${s.abandoned?'Restaurer':'Abandonner'}">${s.abandoned?'↩':'🗄'}</button>
         <button class="btn btn-danger btn-xs" onclick="deleteSerie('${s.id}')">🗑</button>
       </div>
-    </div>
-    <div id="sextra-${s.id}" style="display:none" class="media-extra">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
-        <div><div class="form-label">Années</div><div>${esc(s.years||'?')}</div></div>
-        <div><div class="form-label">Chaîne/Plateforme</div><div>${esc(joinNames(parseNames(s.platforms)))||'–'}</div></div>
-        <div><div class="form-label">Pays</div><div>${esc(joinNames(parseNames(s.countries)))||'–'}</div></div>
-        <div><div class="form-label">Durée moy. épisode</div><div>${s.episodeDuration||'–'} min</div></div>
-        <div><div class="form-label">Genre(s)</div><div>${parseNames(s.genres).length?esc(joinNames(parseNames(s.genres))):'–'}</div></div>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="card-title" style="font-size:14px;margin-bottom:0">Saisons & Épisodes</div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-green btn-xs" onclick="markSerieAll('${s.id}',true)">✓ Tout vu</button>
-          <button class="btn btn-secondary btn-xs" onclick="markSerieAll('${s.id}',false)">✗ Tout non vu</button>
-        </div>
-      </div>
-      <div id="seasons-tree-${s.id}">${seasonsTree(s)}</div>
     </div>
   </div>`;
 }
@@ -2119,7 +2172,7 @@ function updateSerieRowProgress(sid){
   const pf=row.querySelector('.progress-fill');
   const pl=row.querySelector('.progress-bar + div');
   if(pf){pf.style.width=pct+'%'; pf.className='progress-fill '+(pct===100?'green':'gold');}
-  if(pl) pl.textContent=`${seen}/${total} épisodes — ${pct}%`;
+  if(pl) pl.textContent=`${seen}/${total} épisodes — ${pct}% • ${fmtDuration(serieSeenMin(s))} vues`;
 }
 
 // ============================================================
@@ -2206,7 +2259,22 @@ function toggleEp(sid,si,ei) {
   }
   saveDB();
   patchEpisodeUI(s, si, ei);
+  patchSerieDetailHeader(sid);
   updateSerieRowProgress(sid);
+}
+
+// Patches just the top summary block of an open serie-detail modal (progress
+// bar, percentage, watched duration) without touching the seasons tree below
+// it — keeps season open/closed state intact, unlike a full modal reload.
+function patchSerieDetailHeader(sid) {
+  const s = DB.series.find(x=>x.id===sid); if(!s) return;
+  const body = document.getElementById('serie-detail-body-'+sid); if(!body) return;
+  const seen = serieSeenEps(s), total = serieTotalEps(s);
+  const pct = total ? Math.round(seen/total*100) : 0;
+  const pf = body.querySelector('.progress-fill');
+  const pl = body.querySelector('.progress-bar + div');
+  if(pf){ pf.style.width = pct+'%'; pf.className = 'progress-fill '+(pct===100?'green':'gold'); }
+  if(pl) pl.textContent = `${seen}/${total} épisodes — ${pct}% • ${fmtDuration(serieSeenMin(s))} vues`;
 }
 
 function patchEpisodeUI(s, si, ei) {
@@ -2240,8 +2308,7 @@ function markSerieAll(sid,seen) {
   s.seasons.forEach(sn=>sn.episodes.forEach(ep=>ep.seen=seen));
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
-  const tree=document.getElementById('seasons-tree-'+sid);
-  if(tree) tree.innerHTML=seasonsTree(s);
+  refreshSerieDetailModal(sid);
   updateSerieRowProgress(sid);
 }
 
@@ -2250,24 +2317,21 @@ function markSeasonAll(sid,si,seen) {
   s.seasons[si].episodes.forEach(ep=>ep.seen=seen);
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
-  const tree=document.getElementById('seasons-tree-'+sid);
-  if(tree) tree.innerHTML=seasonsTree(s);
+  refreshSerieDetailModal(sid);
   updateSerieRowProgress(sid);
 }
 
-function toggleSerieExtra(id) {
-  const el=document.getElementById('sextra-'+id);
-  if(el) el.style.display=el.style.display==='none'?'block':'none';
-}
 function toggleAbandoned(id) {
   const s=DB.series.find(x=>x.id===id); if(!s) return;
   s.abandoned=!s.abandoned; saveDB();
+  if(document.getElementById('serie-detail-body-'+id)) closeModal();
   const cur=document.querySelector('.nav-item.active')?.dataset.page||'series';
   render(cur);
 }
 function deleteSerie(id) {
   if(!confirm('Supprimer cette série ?')) return;
   DB.series=DB.series.filter(s=>s.id!==id); saveDB();
+  if(document.getElementById('serie-detail-body-'+id)) closeModal();
   const cur=document.querySelector('.nav-item.active')?.dataset.page||'series';
   render(cur);
 }
@@ -3648,10 +3712,10 @@ function sagaCard(sg) {
         <div class="saga-film-meta">${esc(joinNames(sf.directors||[]))} • ${esc(sf.year||'?')} • ${sf.duration?sf.duration+' min':'–'}</div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
-        <button class="btn ${isSeen?'btn-secondary':'btn-green'} btn-xs" onclick="event.stopPropagation();toggleSagaFilmSeen('${sg.id}','${sf.id}')">${isSeen?'Non vu':'✓ Vu'}</button>
-        <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();moveSagaFilm('${sg.id}',${idx},-1)" ${idx===0?'disabled':''}>↑</button>
-        <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();moveSagaFilm('${sg.id}',${idx},1)" ${idx===films.length-1?'disabled':''}>↓</button>
-        <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();removeSagaFilm('${sg.id}','${sf.id}')">🗑</button>
+        <button class="btn ${isSeen?'btn-secondary':'btn-green'} btn-xs" onclick="event.stopPropagation();toggleSagaFilmSeen('${sg.id}','${sf.id}')" title="${isSeen?'Marquer comme non vu':'Marquer comme vu'}">${isSeen?'✗':'✓'}</button>
+        <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();moveSagaFilm('${sg.id}',${idx},-1)" ${idx===0?'disabled':''} title="Monter">↑</button>
+        <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();moveSagaFilm('${sg.id}',${idx},1)" ${idx===films.length-1?'disabled':''} title="Descendre">↓</button>
+        <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();removeSagaFilm('${sg.id}','${sf.id}')" title="Retirer de la saga">🗑</button>
       </div>
     </div>`;
   }).join('');
