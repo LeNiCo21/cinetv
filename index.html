@@ -757,8 +757,7 @@ render('dashboard');
 // Registered as early as possible (not waiting for the full `load` event,
 // which only fires once every resource — including the ~60KB embedded font
 // — has finished downloading). window._swReadyPromise lets other code
-// (checkForUpdatesNow) await the same in-flight registration instead of
-// racing it.
+// await the same in-flight registration instead of racing it.
 //
 // A registration that neither resolves nor rejects (just hangs forever) is
 // a real symptom some browsers exhibit when a stale/zombie service worker
@@ -843,47 +842,6 @@ async function fullServiceWorkerReset() {
   } catch(e) {
     if(log) log.innerHTML = `<span style="color:var(--red)">Erreur pendant le nettoyage : ${esc(e.message||String(e))}</span>`;
   }
-}
-
-async function checkForUpdatesNow() {
-  const log = document.getElementById('update-check-log');
-  if (!('serviceWorker' in navigator)) {
-    if(log) log.innerHTML = `<span style="color:var(--text-dim)">Non disponible dans ce navigateur.</span>`;
-    return;
-  }
-  if(log) log.innerHTML = `<span style="color:var(--text-dim)">Vérification en cours...</span>`;
-
-  // Wait for the registration that was kicked off at page load, instead of
-  // racing it — this is what was causing the false "non actif" error when
-  // checking right after opening the app, before registration had finished.
-  if (window._swReadyPromise) {
-    try { await window._swReadyPromise; } catch(e) { /* fall through to the not-registered branch below */ }
-  }
-
-  navigator.serviceWorker.getRegistration().then(reg => {
-    if (!reg) {
-      const reason = window._swRegistrationError
-        ? `Échec de l'enregistrement : ${esc(window._swRegistrationError)}`
-        : `Service worker pas encore enregistré.`;
-      if(log) log.innerHTML = `<span style="color:var(--red)">${reason}</span> <button class="btn btn-secondary btn-xs" id="sw-retry-btn" style="margin-left:6px">↻ Réessayer</button>`;
-      const retryBtn = document.getElementById('sw-retry-btn');
-      if(retryBtn) retryBtn.addEventListener('click', ()=>{
-        log.innerHTML = `<span style="color:var(--text-dim)">Nouvel essai...</span>`;
-        navigator.serviceWorker.register('sw.js').then(()=>{
-          log.innerHTML = `<span style="color:var(--green)">✓ Service worker enregistré avec succès.</span>`;
-        }).catch(err=>{
-          window._swRegistrationError = err.message || String(err);
-          log.innerHTML = `<span style="color:var(--red)">Toujours en échec : ${esc(window._swRegistrationError)}</span>`;
-        });
-      });
-      return;
-    }
-    reg.update().then(() => {
-      if(log) log.innerHTML = `<span style="color:var(--green)">✓ Vérification effectuée. Si une mise à jour existe, elle apparaîtra dans un bandeau en haut.</span>`;
-    }).catch((err)=>{
-      if(log) log.innerHTML = `<span style="color:var(--red)">Erreur lors de la vérification : ${esc(err.message||String(err))}</span>`;
-    });
-  });
 }
 
 
@@ -3330,15 +3288,10 @@ function importPage(el) {
   <div style="margin-top:24px" class="card">
     <div class="card-title">🔄 Mise à jour de l'application</div>
     <div style="color:var(--text-dim);font-size:13px;margin-bottom:14px">
-      CinéTV vérifie automatiquement les mises à jour en arrière-plan ; un bandeau apparaît si une nouvelle version est disponible. Vous pouvez aussi forcer une vérification immédiate.
+      Un bandeau peut apparaître automatiquement en bas de l'écran quand une nouvelle version est détectée, mais ce mécanisme n'est pas garanti (il dépend du moment où l'app est ouverte). Le plus fiable reste de cliquer sur ce bouton après chaque mise à jour annoncée.
     </div>
-    <button class="btn btn-secondary" onclick="checkForUpdatesNow()">🔄 Vérifier les mises à jour</button>
-    <div id="update-check-log" style="font-size:13px;margin-top:10px"></div>
-    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
-      <div style="color:var(--text-dim);font-size:12px;margin-bottom:10px">Si la vérification reste bloquée sur une erreur, un service worker d'une ancienne version peut être coincé en arrière-plan. Ce bouton désinscrit tout service worker et vide les caches de l'app, puis recharge proprement.</div>
-      <button class="btn btn-danger btn-sm" onclick="fullServiceWorkerReset()">🧹 Nettoyage complet & rechargement</button>
-      <div id="sw-reset-log" style="font-size:13px;margin-top:8px"></div>
-    </div>
+    <button class="btn btn-primary" onclick="fullServiceWorkerReset()">🔄 Mettre à jour l'application</button>
+    <div id="sw-reset-log" style="font-size:13px;margin-top:8px"></div>
   </div>
   <div style="margin-top:24px" class="card">
     <div class="card-title">⚠️ Gérer les données</div>
