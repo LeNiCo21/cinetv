@@ -1569,12 +1569,16 @@ function findNextEpisode(s) {
 function dashMarkEpSeen(sid, si, ei) {
   const s = DB.series.find(x=>x.id===sid);
   if(!s) return;
+  // Remember which mobile tab was active before re-rendering
+  const activeDashTab = document.querySelector('.dash-mobile-tab.active')?.dataset.dashtab || 'series';
   s.seasons[si].episodes[ei].seen = true;
   s.lastInteracted = Date.now();
   _lastInteractedSerieId = sid;
   logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
   saveDB();
   render('dashboard');
+  // Restore the active dashboard tab (films or series) that was open before
+  setDashMobileTab(activeDashTab);
 }
 
 // ============================================================
@@ -1969,13 +1973,15 @@ function renderSerieDetailModalHTML(s) {
     <div class="modal" style="max-width:680px">
       <div class="modal-header">
         <div class="modal-title">${esc(s.title)}${s.abandoned?' <span class="badge badge-gray" style="font-size:11px;vertical-align:middle">Abandonnée</span>':''}</div>
-        <button class="close-btn" onclick="closeModal()">✕</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="btn btn-secondary btn-xs" onclick="closeModal();openSerieForm('${s.id}')" title="Modifier la série">✏️</button>
+          <button class="close-btn" onclick="closeModal()">✕</button>
+        </div>
       </div>
       <div class="modal-body" id="serie-detail-body-${s.id}">
         ${serieDetailBodyHTML(s)}
       </div>
-      <div class="modal-footer" style="justify-content:space-between">
-        <button class="btn btn-secondary" onclick="closeModal();openSerieForm('${s.id}')">✏️ Modifier</button>
+      <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
       </div>
     </div>
@@ -2061,8 +2067,7 @@ function serieRow(s, showMarkEp) {
         </div>
       </div>
       <div class="media-actions" onclick="event.stopPropagation()">
-        <button class="btn btn-green btn-xs" onclick="markSerieAll('${s.id}',true)" title="Tout vu">✓</button>
-        <button class="btn btn-secondary btn-xs" onclick="markSerieAll('${s.id}',false)" title="Tout non vu">✗</button>
+        <button class="btn ${seen===total && total>0 ? 'btn-secondary' : 'btn-green'} btn-xs" onclick="toggleSerieAllSeen('${s.id}')" title="${seen===total && total>0 ? 'Tout non vu' : 'Tout vu'}">${seen===total && total>0 ? '✗' : '✓'}</button>
         <button class="btn btn-secondary btn-xs" onclick="toggleAbandoned('${s.id}')" title="${s.abandoned?'Restaurer':'Abandonner'}">${s.abandoned?'↩':'🗄'}</button>
         <button class="btn btn-danger btn-xs" onclick="deleteSerie('${s.id}')">🗑</button>
       </div>
@@ -2220,30 +2225,55 @@ function seasonsTree(s) {
           <button class="ep-btn ${ep.seen?'ep-seen':'ep-unseen'}" onclick="toggleEp('${s.id}',${si},${ei})" title="S${si+1}E${ei+1}">${ei+1}</button>
         `).join('')}</div>`;
     return `<div class="season-item">
-      <div class="season-header" onclick="toggleSeasonEps('${s.id}',${si})">
-        <span>${esc(seasonLabel(season,si))}${esc(yearLabel)} <span style="color:var(--text-dim);font-size:12px">(${seen}/${total} — ${pct}%)</span></span>
+      <div class="season-header" onclick="toggleSeasonEps('${s.id}',${si})" style="gap:8px">
+        <span style="flex:1">${esc(seasonLabel(season,si))}${esc(yearLabel)} <span style="color:var(--text-dim);font-size:12px">(${seen}/${total} — ${pct}%)</span></span>
+        <div onclick="event.stopPropagation()" style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn btn-green btn-xs" onclick="markSeasonAll('${s.id}',${si},true)" title="Tout vu">✓</button>
+          <button class="btn btn-secondary btn-xs" onclick="markSeasonAll('${s.id}',${si},false)" title="Tout non vu">✗</button>
+        </div>
         <span id="sicon-${s.id}-${si}">${isOpen?'▼':'▶'}</span>
       </div>
       <div id="season-eps-${s.id}-${si}" style="display:${isOpen?'block':'none'}">
         ${epsHTML}
-        <div style="display:flex;gap:6px;padding:6px 0 4px ${hasDetails?'0':'12px'}">
-          <button class="btn btn-secondary btn-xs" onclick="markSeasonAll('${s.id}',${si},true)">✓ Tout vu</button>
-          <button class="btn btn-secondary btn-xs" onclick="markSeasonAll('${s.id}',${si},false)">✗ Tout non vu</button>
-        </div>
       </div>
     </div>`;
   }).join('');
+}
+
+function toggleSerieAllSeen(sid) {
+  const s=DB.series.find(x=>x.id===sid); if(!s) return;
+  const seen=serieSeenEps(s), total=serieTotalEps(s);
+  const markSeen = !(seen===total && total>0);
+  s.seasons.forEach(sn=>sn.episodes.forEach(ep=>ep.seen=markSeen));
+  s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
+  saveDB();
+  if(document.getElementById('serie-detail-body-'+sid)) refreshSerieDetailModal(sid);
+  updateSerieRowProgress(sid);
+  // Redraw the toggle button label
+  const row=document.getElementById('srow-'+sid); if(!row) return;
+  const newSeen=serieSeenEps(s), newTotal=serieTotalEps(s);
+  const btn=row.querySelector('.media-actions .btn');
+  if(btn){
+    btn.className=`btn ${newSeen===newTotal&&newTotal>0?'btn-secondary':'btn-green'} btn-xs`;
+    btn.title=newSeen===newTotal&&newTotal>0?'Tout non vu':'Tout vu';
+    btn.textContent=newSeen===newTotal&&newTotal>0?'✗':'✓';
+  }
 }
 
 function toggleSeasonEps(sid,si) {
   const key = `${sid}-${si}`;
   const el=document.getElementById(`season-eps-${sid}-${si}`);
   const icon=document.getElementById(`sicon-${sid}-${si}`);
+  const header=el?el.previousElementSibling:null;
   if(el){
     const open=el.style.display!=='none';
     el.style.display=open?'none':'block';
     icon.textContent=open?'▶':'▼';
-    if(open) _openSeasons.delete(key); else _openSeasons.add(key);
+    if(open) _openSeasons.delete(key); else {
+      _openSeasons.add(key);
+      // On mobile, scroll the season header into view so it's visible after expanding
+      if(header) setTimeout(()=>header.scrollIntoView({behavior:'smooth',block:'nearest'}),50);
+    }
   }
 }
 
