@@ -2270,16 +2270,21 @@ function toggleSeasonEps(sid,si) {
     icon.textContent=open?'▶':'▼';
     if(open) _openSeasons.delete(key); else {
       _openSeasons.add(key);
-      // Scroll the season header to the top of the modal's scrollable body
       if(header) setTimeout(()=>{
-        const scrollParent = header.closest('.modal-body') || header.closest('.modal') || header.closest('[style*="overflow"]');
-        if(scrollParent) {
-          const headerTop = header.offsetTop - scrollParent.offsetTop;
-          scrollParent.scrollTo({top: headerTop - 8, behavior:'smooth'});
-        } else {
-          header.scrollIntoView({behavior:'smooth', block:'nearest'});
+        // Walk up the DOM to find the first scrollable ancestor
+        let parent = header.parentElement;
+        while(parent && parent !== document.body) {
+          const style = window.getComputedStyle(parent);
+          if(style.overflowY === 'auto' || style.overflowY === 'scroll') break;
+          parent = parent.parentElement;
         }
-      }, 50);
+        if(parent && parent !== document.body) {
+          const parentRect = parent.getBoundingClientRect();
+          const headerRect = header.getBoundingClientRect();
+          const scrollTarget = parent.scrollTop + (headerRect.top - parentRect.top) - 8;
+          parent.scrollTo({top: scrollTarget, behavior:'smooth'});
+        }
+      }, 100);
     }
   }
 }
