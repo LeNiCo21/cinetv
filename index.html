@@ -2271,20 +2271,14 @@ function toggleSeasonEps(sid,si) {
     if(open) _openSeasons.delete(key); else {
       _openSeasons.add(key);
       if(header) setTimeout(()=>{
-        // Walk up the DOM to find the first scrollable ancestor
-        let parent = header.parentElement;
-        while(parent && parent !== document.body) {
-          const style = window.getComputedStyle(parent);
-          if(style.overflowY === 'auto' || style.overflowY === 'scroll') break;
-          parent = parent.parentElement;
-        }
-        if(parent && parent !== document.body) {
-          const parentRect = parent.getBoundingClientRect();
+        // Target the .modal directly — it's the scroll container on all layouts
+        const scrollEl = header.closest('.modal');
+        if(scrollEl) {
+          const scrollElRect = scrollEl.getBoundingClientRect();
           const headerRect = header.getBoundingClientRect();
-          const scrollTarget = parent.scrollTop + (headerRect.top - parentRect.top) - 8;
-          parent.scrollTo({top: scrollTarget, behavior:'smooth'});
+          scrollEl.scrollTop = scrollEl.scrollTop + (headerRect.top - scrollElRect.top) - 8;
         }
-      }, 100);
+      }, 120);
     }
   }
 }
