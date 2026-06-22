@@ -3427,8 +3427,8 @@ function importPage(el) {
       <button class="btn btn-danger" onclick="clearDB()">🗑 Effacer toutes les données</button>
     </div>
   </div>
-  <div style="margin-top:24px;text-align:center;padding:16px;color:var(--text-dim);font-size:12px;border-top:1px solid var(--border)">
-    CinéTV <span style="color:var(--gold)">${APP_VERSION}</span>
+  <div style="margin-top:24px;text-align:center;padding:16px 0 8px;color:var(--text-dim);font-size:13px">
+    CinéTV &nbsp;<span style="color:var(--gold);font-weight:600">${APP_VERSION}</span>
   </div>`;
   setupDrop('film-drop','film-file',importFilmsFromFile);
   setupDrop('serie-drop','serie-file',importSeriesFromFile);
