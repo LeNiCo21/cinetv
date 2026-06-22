@@ -2227,9 +2227,8 @@ function seasonsTree(s) {
     return `<div class="season-item">
       <div class="season-header" onclick="toggleSeasonEps('${s.id}',${si})" style="gap:8px">
         <span style="flex:1">${esc(seasonLabel(season,si))}${esc(yearLabel)} <span style="color:var(--text-dim);font-size:12px">(${seen}/${total} — ${pct}%)</span></span>
-        <div onclick="event.stopPropagation()" style="display:flex;gap:4px;flex-shrink:0">
-          <button class="btn btn-green btn-xs" onclick="markSeasonAll('${s.id}',${si},true)" title="Tout vu">✓</button>
-          <button class="btn btn-secondary btn-xs" onclick="markSeasonAll('${s.id}',${si},false)" title="Tout non vu">✗</button>
+        <div onclick="event.stopPropagation()" style="flex-shrink:0">
+          <button class="btn ${seen===total&&total>0?'btn-secondary':'btn-green'} btn-xs" onclick="toggleSeasonAllSeen('${s.id}',${si})" title="${seen===total&&total>0?'Tout non vu':'Tout vu'}">${seen===total&&total>0?'✗':'✓'}</button>
         </div>
         <span id="sicon-${s.id}-${si}">${isOpen?'▼':'▶'}</span>
       </div>
@@ -2271,8 +2270,16 @@ function toggleSeasonEps(sid,si) {
     icon.textContent=open?'▶':'▼';
     if(open) _openSeasons.delete(key); else {
       _openSeasons.add(key);
-      // On mobile, scroll the season header into view so it's visible after expanding
-      if(header) setTimeout(()=>header.scrollIntoView({behavior:'smooth',block:'nearest'}),50);
+      // Scroll the season header to the top of the modal's scrollable body
+      if(header) setTimeout(()=>{
+        const scrollParent = header.closest('.modal-body') || header.closest('.modal') || header.closest('[style*="overflow"]');
+        if(scrollParent) {
+          const headerTop = header.offsetTop - scrollParent.offsetTop;
+          scrollParent.scrollTo({top: headerTop - 8, behavior:'smooth'});
+        } else {
+          header.scrollIntoView({behavior:'smooth', block:'nearest'});
+        }
+      }, 50);
     }
   }
 }
@@ -2336,6 +2343,19 @@ function patchEpisodeUI(s, si, ei) {
 function markSerieAll(sid,seen) {
   const s=DB.series.find(x=>x.id===sid); if(!s) return;
   s.seasons.forEach(sn=>sn.episodes.forEach(ep=>ep.seen=seen));
+  s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
+  saveDB();
+  refreshSerieDetailModal(sid);
+  updateSerieRowProgress(sid);
+}
+
+function toggleSeasonAllSeen(sid, si) {
+  const s=DB.series.find(x=>x.id===sid); if(!s) return;
+  const season=s.seasons[si]; if(!season) return;
+  const seen=season.episodes.filter(e=>e.seen).length;
+  const total=season.episodes.length;
+  const markSeen = !(seen===total && total>0);
+  season.episodes.forEach(ep=>ep.seen=markSeen);
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
   refreshSerieDetailModal(sid);
