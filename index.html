@@ -1974,7 +1974,7 @@ function renderSerieDetailModalHTML(s) {
       <div class="modal-header">
         <div class="modal-title">${esc(s.title)}${s.abandoned?' <span class="badge badge-gray" style="font-size:11px;vertical-align:middle">Abandonnée</span>':''}</div>
         <div style="display:flex;align-items:center;gap:6px">
-          <button class="btn btn-secondary btn-xs" onclick="closeModal();openSerieForm('${s.id}')" title="Modifier la série">✏️</button>
+          <button class="btn btn-secondary btn-xs" onclick="openSerieFormFromDetail('${s.id}')" title="Modifier la série">✏️</button>
           <button class="close-btn" onclick="closeModal()">✕</button>
         </div>
       </div>
@@ -2397,6 +2397,12 @@ function abandonedPage(el) {
 // ============================================================
 // SERIE FORM (with season naming + airdate cascade tools)
 // ============================================================
+function openSerieFormFromDetail(id) {
+  window._serieDetailOrigin = id;
+  closeModal();
+  openSerieForm(id);
+}
+
 function openSerieForm(id) {
   window._capturedPoster = undefined;
   const serie = id ? DB.series.find(s=>s.id===id) : null;
@@ -2615,6 +2621,12 @@ function openSerieForm(id) {
       DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,poster,abandoned:false,lastInteracted:0});
     }
     saveDB(); closeModal();
+    const originSerieId = window._serieDetailOrigin || null;
+    window._serieDetailOrigin = null;
+    if(originSerieId) {
+      openSerieDetailModal(originSerieId);
+      return;
+    }
     const cur=document.querySelector('.nav-item.active')?.dataset.page||'series';
     if(cur==='series'&&window._seriesPageDraw) window._seriesPageDraw();
     else render(cur);
@@ -4116,7 +4128,13 @@ function overlayClick(e){if(e.target.id==='modal-overlay') cancelModal();}
 function cancelModal(){
   restoreWatchlistIfPending();
   discardEmptyPendingSaga();
+  const originSerieId = window._serieDetailOrigin || null;
+  window._serieDetailOrigin = null;
   closeModal();
+  if(originSerieId) {
+    openSerieDetailModal(originSerieId);
+    return;
+  }
   if(window._wlDraw) {
     const cur = document.querySelector('.nav-item.active')?.dataset.page;
     if(cur==='watchlist') window._wlDraw();
