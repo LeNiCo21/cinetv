@@ -299,7 +299,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.2.0';
+const APP_VERSION = 'v3.2.1';
 
 function loadDB() {
   try {
@@ -909,12 +909,14 @@ function buildWrappedData(year) {
   epEntries.forEach(e=>seasonsTouched.add(e.serieId+':'+e.seasonIndex));
   const seriesCount = seriesWatched.length;
 
-  // Most-consumed series this year (by minutes watched this year, tie-break episodes)
+  // Most-consumed series this year — primary: episodes watched this year, tie-break: minutes
   let mostWatchedSerie = null, mostWatchedSerieMin = -1, mostWatchedSerieEps = 0;
   seriesWatchedIds.forEach(id=>{
     const entries = epBySerie[id];
     const mins = entries.reduce((a,e)=>a+(e.r.duration||0),0);
-    if(mins > mostWatchedSerieMin){ mostWatchedSerieMin = mins; mostWatchedSerie = DB.series.find(s=>s.id===id); mostWatchedSerieEps = entries.length; }
+    const eps = entries.length;
+    const beats = eps > mostWatchedSerieEps || (eps === mostWatchedSerieEps && mins > mostWatchedSerieMin);
+    if(beats){ mostWatchedSerieMin = mins; mostWatchedSerie = DB.series.find(s=>s.id===id); mostWatchedSerieEps = eps; }
   });
 
   // ---- 3) Temps de visionnage ----
@@ -1053,12 +1055,34 @@ function buildWrappedData(year) {
     });
   }
 
+  // Most watched serie by episodes
+  let mostWatchedSerieByEps = null, mostWatchedSerieByEpsCount = 0;
+  let mostWatchedSerieByMin = null, mostWatchedSerieByMinVal = 0;
+  seriesWatchedIds.forEach(id => {
+    const entries = epBySerie[id];
+    const eps = entries.length;
+    const mins = entries.reduce((a,e) => a + (e.r.duration||0), 0);
+    const serie = DB.series.find(s => s.id === id);
+    if(!serie) return;
+    if(eps > mostWatchedSerieByEpsCount) { mostWatchedSerieByEpsCount = eps; mostWatchedSerieByEps = serie; }
+    if(mins > mostWatchedSerieByMinVal) { mostWatchedSerieByMinVal = mins; mostWatchedSerieByMin = serie; }
+  });
+
+  // All series watched this year sorted by episodes desc (for progress bars)
+  const seriesWatchedThisYear = seriesWatchedIds
+    .map(id => { const s = DB.series.find(x => x.id===id); const eps = epBySerie[id].length; return s ? {title:s.title, eps} : null; })
+    .filter(Boolean)
+    .sort((a,b) => b.eps - a.eps);
+
   return {
     year, prevYearHasData,
     // section 2
     filmCount, filmTotalMin, shortestFilm, longestFilm,
-    seriesCount, totalEpisodesThisYear, seasonsTouchedCount: seasonsTouched.size, totalEpisodeMin,
+    seriesCount, totalEpisodesThisYear, totalEpisodeMin,
     mostWatchedSerie, mostWatchedSerieMin, mostWatchedSerieEps,
+    mostWatchedSerieByEps, mostWatchedSerieByEpsCount,
+    mostWatchedSerieByMin, mostWatchedSerieByMinVal,
+    seriesWatchedThisYear,
     // section 3
     totalMin, filmPct, seriesPct,
     byMonth, maxMonth, minMonth, peakMonthShare,
@@ -3245,146 +3269,162 @@ function buildWrappedSlides(d, narrative) {
 
   const slides = [];
 
-  // ---- 1) Vue globale, résumé immédiat ----
-  let globalStats = '<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px">';
-  globalStats += statPill('Films vus', d.filmCount);
-  globalStats += statPill('Séries suivies', d.seriesCount);
-  globalStats += statPill('Épisodes vus', d.totalEpisodesThisYear);
-  globalStats += '</div>';
-  if(d.comparison) {
-    const c = d.comparison;
-    let compLines = '<div style="margin-top:14px;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:4px">';
-    if(c.filmCountPct!==null) compLines += `<div>Films : ${c.filmCountDelta>=0?'+':''}${c.filmCountDelta} (${c.filmCountPct>=0?'+':''}${c.filmCountPct}%) vs ${d.year-1}</div>`;
-    if(c.seriesCountPct!==null) compLines += `<div>Séries : ${c.seriesCountDelta>=0?'+':''}${c.seriesCountDelta} (${c.seriesCountPct>=0?'+':''}${c.seriesCountPct}%) vs ${d.year-1}</div>`;
-    compLines += '</div>';
-    globalStats += compLines;
-  }
-  slides.push(wrappedSection('📊 Résumé de l\'année', globalStats));
+  // ---- 1) Intro — chiffre global ----
+  let introHTML = `<div style="text-align:center;padding:10px 0 20px">
+    <div style="font-family:var(--font-display);font-size:52px;color:var(--gold);line-height:1">${d.filmCount + d.seriesCount}</div>
+    <div style="font-size:14px;color:var(--text-dim);margin-top:6px;letter-spacing:1px;text-transform:uppercase">œuvres cette année</div>
+    <div style="font-size:28px;color:var(--text);margin-top:18px;font-family:var(--font-display)">${fmtDuration(d.totalMin)}</div>
+    <div style="font-size:13px;color:var(--text-dim);margin-top:4px">de visionnage</div>
+  </div>
+  <div style="display:flex;gap:0;margin-top:16px;border-radius:8px;overflow:hidden;height:10px">
+    <div style="background:var(--gold);width:${d.filmPct}%;transition:width .5s"></div>
+    <div style="background:var(--surface3);flex:1"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-top:6px">
+    <span>🎬 Films ${d.filmPct}%</span>
+    <span>📺 Séries ${d.seriesPct}%</span>
+  </div>`;
+  slides.push(wrappedSection('✨ Ton année en un coup d\'œil', introHTML));
 
-  // ---- 2) Consommation brute ----
-  let consoHTML = '<table class="data-table"><tbody>';
-  consoHTML += `<tr><td>Films vus</td><td>${d.filmCount}</td></tr>`;
-  consoHTML += `<tr><td>Durée totale (films)</td><td>${fmtDuration(d.filmTotalMin)}</td></tr>`;
-  if(d.shortestFilm) consoHTML += `<tr><td>Film le plus court</td><td>${esc(d.shortestFilm.title)} (${fmtH(parseInt(d.shortestFilm.duration)||0)})</td></tr>`;
-  if(d.longestFilm) consoHTML += `<tr><td>Film le plus long</td><td>${esc(d.longestFilm.title)} (${fmtH(parseInt(d.longestFilm.duration)||0)})</td></tr>`;
-  consoHTML += `<tr><td>Séries suivies</td><td>${d.seriesCount}</td></tr>`;
-  consoHTML += `<tr><td>Épisodes vus</td><td>${d.totalEpisodesThisYear}</td></tr>`;
-  consoHTML += `<tr><td>Saisons touchées</td><td>${d.seasonsTouchedCount}</td></tr>`;
-  consoHTML += `<tr><td>Durée totale (séries)</td><td>${fmtDuration(d.totalEpisodeMin)}</td></tr>`;
-  if(d.mostWatchedSerie) consoHTML += `<tr><td>Série la plus consommée</td><td>${esc(d.mostWatchedSerie.title)} (${d.mostWatchedSerieEps} ép. — ${fmtDuration(d.mostWatchedSerieMin)})</td></tr>`;
-  consoHTML += '</table>';
-  slides.push(wrappedSection('🎬 Consommation brute', consoHTML));
+  // ---- 2) Films ----
+  if(d.filmCount > 0) {
+    let filmsHTML = `<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px">`;
+    filmsHTML += statPill('Films vus', d.filmCount);
+    filmsHTML += statPill('Durée totale', fmtDuration(d.filmTotalMin));
+    filmsHTML += `</div>`;
 
-  // ---- 3) Temps de visionnage ----
-  let tempsHTML = `<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">`;
-  tempsHTML += statPill('Temps total', fmtDuration(d.totalMin));
-  tempsHTML += statPill('Films', d.filmPct+'%');
-  tempsHTML += statPill('Séries', d.seriesPct+'%');
-  tempsHTML += '</div>';
-  if(d.maxMonth!==null) tempsHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:8px">Mois le plus actif : <b style="color:var(--gold)">${MONTH_NAMES_FR[d.maxMonth]}</b> (${d.peakMonthShare}% du visionnage annuel)</div>`;
-  if(d.minMonth!==null) tempsHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:4px">Mois le moins actif : <b>${MONTH_NAMES_FR[d.minMonth]}</b></div>`;
-  slides.push(wrappedSection('⏱ Temps de visionnage', tempsHTML));
-
-  // ---- 4) Genres ----
-  if(d.top5Genres.length) {
-    const maxG = d.top5Genres[0][1];
-    let genresHTML = '<div style="display:flex;flex-direction:column;gap:8px">';
-    d.top5Genres.forEach(([g,n])=>{
-      const pct = Math.round(n/maxG*100);
-      genresHTML += `<div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>${esc(g)}</span><span style="color:var(--text-dim)">${n}</span></div>
-        <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
+    // Réalisateur fétiche
+    if(d.topDirectors.length) {
+      filmsHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold);border-radius:6px;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Réalisateur fétiche</div>
+        <div style="font-size:16px;font-weight:600;color:var(--gold)">${d.topDirectors.map(esc).join(', ')}</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${d.topDirCountValue} film${d.topDirCountValue>1?'s':''} cette année</div>
       </div>`;
+    }
+
+    // Genre dominant films
+    if(d.dominantGenre) {
+      filmsHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold-dim);border-radius:6px;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Genre dominant</div>
+        <div style="font-size:16px;font-weight:600">${esc(d.dominantGenre)}</div>
+      </div>`;
+    }
+
+    // Film le plus long / plus court
+    if(d.longestFilm || d.shortestFilm) {
+      filmsHTML += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">`;
+      if(d.longestFilm) filmsHTML += `<div style="padding:10px 12px;background:var(--surface2);border-radius:6px;font-size:12px">
+        <div style="color:var(--text-dim);margin-bottom:3px">⏳ Le plus long</div>
+        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.longestFilm.title)}</div>
+        <div style="color:var(--gold)">${fmtH(parseInt(d.longestFilm.duration)||0)}</div>
+      </div>`;
+      if(d.shortestFilm) filmsHTML += `<div style="padding:10px 12px;background:var(--surface2);border-radius:6px;font-size:12px">
+        <div style="color:var(--text-dim);margin-bottom:3px">⚡ Le plus court</div>
+        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.shortestFilm.title)}</div>
+        <div style="color:var(--gold)">${fmtH(parseInt(d.shortestFilm.duration)||0)}</div>
+      </div>`;
+      filmsHTML += `</div>`;
+    }
+    slides.push(wrappedSection('🎬 Films', filmsHTML));
+  }
+
+  // ---- 3) Séries ----
+  if(d.seriesCount > 0) {
+    let seriesHTML = `<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px">`;
+    seriesHTML += statPill('Séries suivies', d.seriesCount);
+    seriesHTML += statPill('Épisodes vus', d.totalEpisodesThisYear);
+    seriesHTML += statPill('Durée totale', fmtDuration(d.totalEpisodeMin));
+    seriesHTML += `</div>`;
+
+    // Série #1 en épisodes
+    if(d.mostWatchedSerieByEps) {
+      seriesHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold);border-radius:6px;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">La plus regardée (épisodes)</div>
+        <div style="font-size:16px;font-weight:600;color:var(--gold)">${esc(d.mostWatchedSerieByEps.title)}</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${d.mostWatchedSerieByEpsCount} épisode${d.mostWatchedSerieByEpsCount>1?'s':''}</div>
+      </div>`;
+    }
+
+    // Série #1 en durée (si différente)
+    if(d.mostWatchedSerieByMin && (!d.mostWatchedSerieByEps || d.mostWatchedSerieByMin.id !== d.mostWatchedSerieByEps.id)) {
+      seriesHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold-dim);border-radius:6px;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">La plus regardée (durée)</div>
+        <div style="font-size:16px;font-weight:600">${esc(d.mostWatchedSerieByMin.title)}</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${fmtDuration(d.mostWatchedSerieByMinVal)}</div>
+      </div>`;
+    }
+
+    // Barres de progression pour toutes les séries vues
+    if(d.seriesWatchedThisYear && d.seriesWatchedThisYear.length) {
+      const maxEps = d.seriesWatchedThisYear[0].eps;
+      seriesHTML += `<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">`;
+      d.seriesWatchedThisYear.forEach(({title, eps}) => {
+        const pct = maxEps ? Math.round(eps/maxEps*100) : 0;
+        seriesHTML += `<div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">
+            <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:75%">${esc(title)}</span>
+            <span style="color:var(--text-dim);flex-shrink:0">${eps} ép.</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
+        </div>`;
+      });
+      seriesHTML += `</div>`;
+    }
+
+    slides.push(wrappedSection('📺 Séries', seriesHTML));
+  }
+
+  // ---- 4) Sagas ----
+  if(d.sagasTouchedCount > 0) {
+    let sagaHTML = `<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:14px">`;
+    sagaHTML += statPill('Sagas vues', d.sagasTouchedCount);
+    sagaHTML += statPill('Complétées', d.sagasCompletedCount);
+    sagaHTML += `</div>`;
+    if(d.biggestSaga) sagaHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold);border-radius:6px;margin-bottom:8px">
+      <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Plus grande saga vue</div>
+      <div style="font-size:15px;font-weight:600">${sagaLabel(d.biggestSaga)} ${esc(d.biggestSaga.name)}</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${sagaFilmCount(d.biggestSaga)} films</div>
+    </div>`;
+    if(d.mostTimeSaga) sagaHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold-dim);border-radius:6px">
+      <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Saga la plus consommée</div>
+      <div style="font-size:15px;font-weight:600">${sagaLabel(d.mostTimeSaga)} ${esc(d.mostTimeSaga.name)}</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${fmtDuration(d.mostTimeSagaMin)}</div>
+    </div>`;
+    slides.push(wrappedSection('🎞️ Sagas', sagaHTML));
+  }
+
+  // ---- 5) Mois le plus actif ----
+  if(d.maxMonth !== null) {
+    let moisHTML = `<div style="text-align:center;padding:16px 0">
+      <div style="font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Ton mois le plus actif</div>
+      <div style="font-family:var(--font-display);font-size:36px;color:var(--gold)">${MONTH_NAMES_FR[d.maxMonth]}</div>
+      <div style="font-size:14px;color:var(--text-dim);margin-top:8px">${d.peakMonthShare}% de ton visionnage annuel</div>
+    </div>`;
+    slides.push(wrappedSection('📅 Rythme', moisHTML));
+  }
+
+  // ---- 6) Insights & faits marquants ----
+  const allNotes = [...(narrative.insights||[]), ...(narrative.highlights||[])];
+  if(allNotes.length) {
+    let notesHTML = `<div style="display:flex;flex-direction:column;gap:10px">`;
+    allNotes.forEach((n, i) => {
+      const isHighlight = i >= (narrative.insights||[]).length;
+      notesHTML += `<div style="padding:10px 14px;background:${isHighlight?'rgba(232,196,106,.08)':'var(--surface2)'};border-left:3px solid ${isHighlight?'var(--gold)':'var(--gold-dim)'};border-radius:6px;font-size:13px">${isHighlight?'⭐ ':'💡 '}${esc(n)}</div>`;
     });
-    genresHTML += '</div>';
-    if(d.dominantGenre) genresHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:12px">Genre dominant : <b style="color:var(--gold)">${esc(d.dominantGenre)}</b></div>`;
-    slides.push(wrappedSection('🎭 Genres', genresHTML));
-  }
-
-  // ---- 5) Géographie ----
-  if(d.top5Countries.length) {
-    let geoHTML = `<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">`;
-    geoHTML += statPill('Pays différents', d.countriesUniqueCount);
-    geoHTML += statPill('Pays dominant', d.top5Countries[0][0]+' ('+d.dominantCountryPct+'%)');
-    geoHTML += '</div>';
-    geoHTML += '<table class="data-table"><thead><tr><th>Pays</th><th>Œuvres</th></tr></thead><tbody>';
-    d.top5Countries.forEach(([c,n])=>{ geoHTML += `<tr><td>${esc(c)}</td><td>${n}</td></tr>`; });
-    geoHTML += '</tbody></table>';
-    if(d.newCountries.length) geoHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:12px">Nouveaux pays découverts : ${d.newCountries.map(esc).join(', ')}</div>`;
-    slides.push(wrappedSection('🌍 Géographie', geoHTML));
-  }
-
-  // ---- 6) Réalisateurs ----
-  if(d.top5Directors.length) {
-    let dirHTML = '<table class="data-table"><thead><tr><th>Réalisateur</th><th>Films</th></tr></thead><tbody>';
-    d.top5Directors.forEach(([dr,n])=>{ dirHTML += `<tr><td>${esc(dr)}</td><td>${n}</td></tr>`; });
-    dirHTML += '</tbody></table>';
-    dirHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:12px">Réalisateur(s) de l'année : <b style="color:var(--gold)">${d.topDirectors.map(esc).join(', ')}</b></div>`;
-    dirHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:4px">${d.uniqueDirectorsCount} réalisateur(s) unique(s) — le top 3 représente ${d.top3DirConcentration}% de vos films</div>`;
-    slides.push(wrappedSection('🎥 Réalisateurs', dirHTML));
-  }
-
-  // ---- 7) Séries (focus) ----
-  if(d.seriesCount>0) {
-    let seriesHTML = '<table class="data-table"><tbody>';
-    if(d.mostWatchedSerie) seriesHTML += `<tr><td>Série la plus regardée</td><td>${esc(d.mostWatchedSerie.title)} (${d.mostWatchedSerieEps} ép.)</td></tr>`;
-    seriesHTML += `<tr><td>Séries commencées</td><td>${d.seriesStartedCount}</td></tr>`;
-    seriesHTML += `<tr><td>Séries terminées (100%)</td><td>${d.seriesCompletedCount}</td></tr>`;
-    seriesHTML += `<tr><td>Séries abandonnées</td><td>${d.seriesAbandonedCount}</td></tr>`;
-    seriesHTML += `<tr><td>Longueur moyenne (épisodes)</td><td>${d.avgSeriesLength}</td></tr>`;
-    seriesHTML += '</table>';
-    slides.push(wrappedSection('📺 Focus séries', seriesHTML));
-  }
-
-  // ---- 8) Sagas ----
-  if(d.sagasTouchedCount>0) {
-    let sagaHTML = '<table class="data-table"><tbody>';
-    sagaHTML += `<tr><td>Sagas vues cette année</td><td>${d.sagasTouchedCount}</td></tr>`;
-    sagaHTML += `<tr><td>Sagas complétées</td><td>${d.sagasCompletedCount}</td></tr>`;
-    sagaHTML += `<tr><td>Sagas commencées (non terminées)</td><td>${d.sagasStartedNotCompletedCount}</td></tr>`;
-    sagaHTML += `<tr><td>Films isolés vs films de saga</td><td>${d.isolatedFilmsCount} / ${d.sagaFilmsCount}</td></tr>`;
-    if(d.biggestSaga) sagaHTML += `<tr><td>Plus grande saga vue</td><td>${sagaLabel(d.biggestSaga)} ${esc(d.biggestSaga.name)} (${sagaFilmCount(d.biggestSaga)} films)</td></tr>`;
-    if(d.mostTimeSaga) sagaHTML += `<tr><td>Saga la plus "consommée" en temps</td><td>${sagaLabel(d.mostTimeSaga)} ${esc(d.mostTimeSaga.name)} (${fmtDuration(d.mostTimeSagaMin)})</td></tr>`;
-    sagaHTML += '</table>';
-    slides.push(wrappedSection('🎞️ Sagas & franchises', sagaHTML));
-  }
-
-  // ---- 9) Diversité / concentration ----
-  let divHTML = `<div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px">`;
-  divHTML += statPill('Genres différents', d.genresUniqueCount);
-  divHTML += statPill('Pays différents', d.countriesUniqueCount);
-  divHTML += statPill('Réalisateurs uniques', d.uniqueDirectorsCount);
-  divHTML += '</div>';
-  slides.push(wrappedSection('🧩 Diversité', divHTML));
-
-  // ---- 10) Insights automatiques ----
-  if(narrative.insights && narrative.insights.length) {
-    let insightsHTML = '<div style="display:flex;flex-direction:column;gap:10px">';
-    narrative.insights.forEach(ins=>{
-      insightsHTML += `<div style="padding:10px 14px;background:var(--surface2);border-left:3px solid var(--gold);border-radius:6px;font-size:13px">${esc(ins)}</div>`;
-    });
-    insightsHTML += '</div>';
-    slides.push(wrappedSection('💡 Insights', insightsHTML));
-  }
-
-  // ---- 11) Faits marquants ----
-  if(narrative.highlights && narrative.highlights.length) {
-    let hlHTML = '<div style="display:flex;flex-direction:column;gap:10px">';
-    narrative.highlights.forEach(h=>{
-      hlHTML += `<div style="padding:10px 14px;background:rgba(232,196,106,.08);border:1px solid rgba(232,196,106,.2);border-radius:8px;font-size:13px">⭐ ${esc(h)}</div>`;
-    });
-    hlHTML += '</div>';
-    slides.push(wrappedSection('🌟 Faits marquants', hlHTML));
+    notesHTML += `</div>`;
+    slides.push(wrappedSection('💡 Le saviez-vous ?', notesHTML));
   }
 
   const closingHTML = narrative.closing ? `
-      <div style="text-align:center;padding:26px 20px;margin-top:8px;background:var(--surface2);border-radius:var(--radius-lg);border:1px solid var(--border)">
-        <div style="font-family:var(--font-display);font-size:18px;color:var(--gold);font-style:italic">"${esc(narrative.closing)}"</div>
-      </div>
-    ` : '';
+    <div style="text-align:center;padding:26px 20px;margin-top:8px;background:var(--surface2);border-radius:var(--radius-lg);border:1px solid var(--border)">
+      <div style="font-family:var(--font-display);font-size:18px;color:var(--gold);font-style:italic">"${esc(narrative.closing)}"</div>
+    </div>
+  ` : '';
 
   return { heroHTML, slides, closingHTML };
 }
+
+
 
 // Static full report (used when re-consulting a past bilan) — same content
 // as the slideshow, just all stitched together on one scrollable page.
