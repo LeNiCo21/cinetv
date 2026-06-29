@@ -1422,40 +1422,43 @@ function dashboard(el, actions) {
     </div>`;
   }
 
+  // Pre-compute blocks that use nested template literals
+  const splitBarHTML = (()=>{
+    const total = films.length + allSeries.length;
+    if(!total) return '';
+    const filmPct = Math.round(films.length/total*100);
+    const seriePct = 100-filmPct;
+    return '<div class="card" style="margin-bottom:16px">'
+      + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">'
+      + '<span>🎬 Films <b style="color:var(--gold)">'+films.length+'</b> <span style="color:var(--text-dim)">('+filmPct+'%)</span></span>'
+      + '<span>📺 Séries <b style="color:var(--gold)">'+allSeries.length+'</b> <span style="color:var(--text-dim)">('+seriePct+'%)</span></span>'
+      + '</div>'
+      + '<div style="display:flex;border-radius:6px;overflow:hidden;height:12px;background:var(--surface3)">'
+      + '<div style="background:var(--gold);width:'+filmPct+'%;transition:width .4s"></div>'
+      + '<div style="background:#4a9eff;flex:1"></div>'
+      + '</div></div>';
+  })();
+
+  const monthlyChartHTML = (()=>{
+    const monthData = buildMonthlyWatchData();
+    if(!monthData.hasData) return '';
+    return '<div class="card" style="margin-bottom:16px">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+      + '<div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>'
+      + '<div style="display:flex;gap:4px">'
+      + '<button class="btn btn-xs" id="monthly-all-btn" onclick="setMonthlyMode(\'all\')" style="background:var(--gold);color:#000;border:none">Tout</button>'
+      + '<button class="btn btn-xs btn-secondary" id="monthly-films-btn" onclick="setMonthlyMode(\'films\')">Films</button>'
+      + '<button class="btn btn-xs btn-secondary" id="monthly-series-btn" onclick="setMonthlyMode(\'series\')">Séries</button>'
+      + '</div></div>'
+      + '<div id="monthly-chart-container">'+renderMonthlyChart(monthData, 'all')+'</div>'
+      + '</div>';
+  })();
+
   el.innerHTML = `
   <div style="margin-bottom:20px">
     <div class="film-strip" style="margin-bottom:20px"></div>
-    ${(()=>{
-      const total = films.length + allSeries.length;
-      if(!total) return '';
-      const filmPct = Math.round(films.length/total*100);
-      const seriePct = 100-filmPct;
-      return `<div class="card" style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
-          <span>🎬 Films <b style="color:var(--gold)">${films.length}</b> <span style="color:var(--text-dim)">(${filmPct}%)</span></span>
-          <span>📺 Séries <b style="color:var(--gold)">${allSeries.length}</b> <span style="color:var(--text-dim)">(${seriePct}%)</span></span>
-        </div>
-        <div style="display:flex;border-radius:6px;overflow:hidden;height:12px;background:var(--surface3)">
-          <div style="background:var(--gold);width:${filmPct}%;transition:width .4s"></div>
-          <div style="background:#4a9eff;flex:1"></div>
-        </div>
-      </div>`;
-    })()}
-    ${(()=>{
-      const monthData = buildMonthlyWatchData();
-      if(!monthData.hasData) return '';
-      return `<div class="card" style="margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-xs" id="monthly-all-btn" onclick="setMonthlyMode('all')" style="background:var(--gold);color:#000;border:none">Tout</button>
-            <button class="btn btn-xs btn-secondary" id="monthly-films-btn" onclick="setMonthlyMode('films')">Films</button>
-            <button class="btn btn-xs btn-secondary" id="monthly-series-btn" onclick="setMonthlyMode('series')">Séries</button>
-          </div>
-        </div>
-        <div id="monthly-chart-container">${renderMonthlyChart(monthData, 'all')}</div>
-      </div>`;
-    })()}
+    ${splitBarHTML}
+    ${monthlyChartHTML}
     <div class="dash-mobile-tabs">
       <button class="dash-mobile-tab active" data-dashtab="films" onclick="setDashMobileTab('films')">🎬 Films</button>
       <button class="dash-mobile-tab" data-dashtab="series" onclick="setDashMobileTab('series')">📺 Séries</button>
