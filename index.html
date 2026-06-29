@@ -755,13 +755,13 @@ render('dashboard');
 // Show/hide scroll-to-top button
 (function() {
   const btn = document.getElementById('scroll-top-btn');
-  const main = document.getElementById('main');
-  const scrollEl = main || window;
-  const getScroll = () => main ? main.scrollTop : window.scrollY;
-  scrollEl.addEventListener('scroll', () => {
-    const show = getScroll() > 200;
-    btn.style.display = show ? 'flex' : 'none';
-  }, {passive:true});
+  const content = document.getElementById('content');
+  if(btn && content) {
+    btn.onclick = () => content.scrollTo({top:0, behavior:'smooth'});
+    content.addEventListener('scroll', () => {
+      btn.style.display = content.scrollTop > 200 ? 'flex' : 'none';
+    }, {passive:true});
+  }
 })();
 
 // Register the service worker so the app installs and works offline.
