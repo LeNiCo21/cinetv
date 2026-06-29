@@ -1877,16 +1877,24 @@ function navigateToFilm(filmId) {
   if(filmsNav) filmsNav.classList.add('active');
   document.getElementById('topbar-title').textContent = 'Films';
   render('films');
-  // Scroll to and flash the film row
+  // Scroll to, flash and expand the film row
   setTimeout(() => {
     const row = document.getElementById('frow-' + filmId);
     if(row) {
-      row.scrollIntoView({behavior:'smooth', block:'center'});
+      const content = document.getElementById('content');
+      if(content) {
+        const rowTop = row.offsetTop - content.offsetTop;
+        content.scrollTo({top: rowTop - 80, behavior:'smooth'});
+      } else {
+        row.scrollIntoView({behavior:'smooth', block:'center'});
+      }
       row.style.transition = 'background 0.3s';
       row.style.background = 'rgba(232,196,106,0.25)';
       setTimeout(() => { row.style.background = ''; }, 1200);
+      // Expand the film details
+      toggleFilmExtra(filmId);
     }
-  }, 120);
+  }, 150);
 }
 
 function navigateToSerie(serieId) {
