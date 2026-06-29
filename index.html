@@ -1402,12 +1402,12 @@ function renderYearChart(mode, filmsByDecade, filmsByYear) {
       const bh = (val/maxVal)*chartH;
       const y = padT + chartH - bh;
       return '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW+'" height="'+bh.toFixed(1)+'" fill="var(--gold)" rx="2" opacity="0.85"/>'
-        + '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(y-3).toFixed(1)+'" text-anchor="middle" font-size="9" fill="var(--text-dim)">'+val+'</text>'
-        + '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle" font-size="8" fill="var(--text-dim)">'+d+'s</text>';
+        + '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(y-3).toFixed(1)+'" text-anchor="middle" font-size="6" fill="var(--text-dim)">'+val+'</text>'
+        + '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle" font-size="5.5" fill="var(--text-dim)">'+d+'s</text>';
     }).join('');
 
     return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">'
-      + '<text x="'+(padL-2)+'" y="'+(padT)+'" text-anchor="end" font-size="8" fill="var(--text-dim)">'+maxVal+'</text>'
+      + '<text x="'+(padL-2)+'" y="'+(padT)+'" text-anchor="end" font-size="6" fill="var(--text-dim)">'+maxVal+'</text>'
       + '<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(padT+chartH)+'" stroke="var(--border)" stroke-width="1"/>'
       + '<line x1="'+padL+'" y1="'+(padT+chartH)+'" x2="'+(W-padR)+'" y2="'+(padT+chartH)+'" stroke="var(--border)" stroke-width="1"/>'
       + bars
@@ -1419,7 +1419,8 @@ function renderYearChart(mode, filmsByDecade, filmsByYear) {
     return '<div style="max-height:260px;overflow-y:auto"><table class="data-table"><thead><tr><th>Année</th><th></th><th>Films</th></tr></thead><tbody>'
       + rows.map(([y,n]) => {
           const pct = Math.round(n/maxVal*100);
-          return '<tr><td>'+y+'</td>'
+          return '<tr style="cursor:pointer" onclick="openFilmsByYear(\''+y+'\')" title="Voir les films de '+y+'">'
+            + '<td style="color:var(--gold)">'+y+'</td>'
             + '<td style="width:60%;padding:4px 8px"><div style="background:var(--surface3);border-radius:3px;height:8px"><div style="background:var(--gold);height:100%;width:'+pct+'%;border-radius:3px;opacity:.85"></div></div></td>'
             + '<td>'+n+'</td></tr>';
         }).join('')
@@ -1792,6 +1793,37 @@ function toggleCreator(i) {
   const row = document.getElementById('creator-exp-'+i);
   const icon = document.querySelector(`[data-creator="${i}"]`);
   if(row) { const open=row.style.display!=='none'; row.style.display=open?'none':''; icon.textContent=open?'▶':'▼'; }
+}
+
+function openFilmsByYear(year) {
+  const films = DB.films.filter(f => String(f.year) === String(year))
+    .sort((a,b) => (a.title||'').localeCompare(b.title||'', 'fr'));
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" id="modal-overlay" onclick="if(event.target.id==='modal-overlay')closeModal()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div class="modal-title">🎬 Films ${esc(year)} <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${films.length})</span></div>
+        <button class="close-btn" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        ${films.length === 0 ? '<div style="color:var(--text-dim)">Aucun film trouvé.</div>' : `
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${films.map(f => `
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;transition:background .15s" onclick="closeModal();navigateToFilm('${f.id}')" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background=''">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(f.title)}</div>
+                <div style="font-size:12px;color:var(--text-dim)">${esc(joinNames(parseNames(f.directors)))||'–'}${f.duration ? ' · '+fmtH(parseInt(f.duration)) : ''}</div>
+              </div>
+              <div style="font-size:14px;color:var(--text-dim);flex-shrink:0">↗</div>
+            </div>
+          `).join('')}
+        </div>`}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 function openFilmography(encodedName) {
