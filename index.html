@@ -231,7 +231,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .dash-split{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
 .dash-side{display:flex;flex-direction:column;gap:16px;}
 .dash-mobile-tabs{display:none;}
-@media(max-width:1100px){
+@media(max-width:768px){
   .dash-split{grid-template-columns:1fr;}
   .dash-mobile-tabs{display:flex;gap:4px;background:var(--surface2);border-radius:var(--radius);padding:4px;margin-bottom:16px;}
   .dash-mobile-tab{flex:1;padding:9px 12px;border-radius:6px;border:none;cursor:pointer;font-family:var(--font-ui);font-size:13px;font-weight:600;background:transparent;color:var(--text-dim);transition:all .15s;}
@@ -1348,49 +1348,41 @@ function renderMonthlyChart(data, mode) {
   if(!data.hasData) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Pas encore de données de visionnage.</div>';
   const vals = mode==='films' ? data.filmVals : mode==='series' ? data.serieVals : data.allVals;
   const maxVal = Math.max(...vals, 1);
-  const W = 320, H = 120, padL = 24, padB = 20, padR = 8, padT = 10;
+  const W = 300, H = 70, padL = 18, padB = 14, padR = 4, padT = 6;
   const chartW = W - padL - padR;
   const chartH = H - padB - padT;
   const n = vals.length;
   const step = n > 1 ? chartW / (n-1) : chartW;
-  const color = mode==='films' ? 'var(--gold)' : mode==='series' ? '#4a9eff' : 'var(--gold)';
+  const color = mode==='series' ? '#4a9eff' : 'var(--gold)';
 
-  // Build polyline points
   const points = vals.map((v,i) => {
     const x = padL + (n>1 ? i*step : chartW/2);
     const y = padT + chartH - (v/maxVal)*chartH;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
+    return x.toFixed(1)+','+y.toFixed(1);
   }).join(' ');
 
-  // Y axis labels (0 and max)
-  const yLabels = `
-    <text x="${padL-3}" y="${padT+6}" text-anchor="end" font-size="9" fill="var(--text-dim)">${maxVal}</text>
-    <text x="${padL-3}" y="${padT+chartH+4}" text-anchor="end" font-size="9" fill="var(--text-dim)">0</text>`;
-
-  // X axis labels — show every Nth label to avoid overlap
   const every = n <= 12 ? 1 : n <= 24 ? 2 : n <= 48 ? 4 : 6;
   const xLabels = vals.map((_,i) => {
     if(i % every !== 0) return '';
     const x = padL + (n>1 ? i*step : chartW/2);
-    return `<text x="${x.toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="8" fill="var(--text-dim)">${data.labels[i]}</text>`;
+    return '<text x="'+x.toFixed(1)+'" y="'+(H-2)+'" text-anchor="middle" font-size="7" fill="var(--text-dim)">'+data.labels[i]+'</text>';
   }).join('');
 
-  // Dots on data points
   const dots = vals.map((v,i) => {
     if(v===0) return '';
     const x = padL + (n>1 ? i*step : chartW/2);
     const y = padT + chartH - (v/maxVal)*chartH;
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}" stroke="var(--bg)" stroke-width="1.5">
-      <title>${data.labels[i]} : ${v}</title></circle>`;
+    return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="2.5" fill="'+color+'" stroke="var(--bg)" stroke-width="1"><title>'+data.labels[i]+' : '+v+'</title></circle>';
   }).join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
-    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
-    <line x1="${padL}" y1="${padT+chartH}" x2="${W-padR}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
-    ${yLabels}${xLabels}
-    <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dots}
-  </svg>`;
+  return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">'
+    + '<text x="'+(padL-2)+'" y="'+(padT+5)+'" text-anchor="end" font-size="7" fill="var(--text-dim)">'+maxVal+'</text>'
+    + '<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(padT+chartH)+'" stroke="var(--border)" stroke-width="1"/>'
+    + '<line x1="'+padL+'" y1="'+(padT+chartH)+'" x2="'+(W-padR)+'" y2="'+(padT+chartH)+'" stroke="var(--border)" stroke-width="1"/>'
+    + xLabels
+    + '<polyline points="'+points+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
+    + dots
+    + '</svg>';
 }
 
 function renderYearChart(mode, filmsByDecade, filmsByYear) {
@@ -1399,33 +1391,19 @@ function renderYearChart(mode, filmsByDecade, filmsByYear) {
     : Object.entries(filmsByYear).filter(([y])=>y!=='?').sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([y,n])=>[y,n]);
   if(!raw.length) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucune donnée.</div>';
   const maxVal = Math.max(...raw.map(([,n])=>n), 1);
-  const W = 320, H = 140, padL = 24, padB = 22, padR = 8, padT = 10;
-  const chartW = W - padL - padR;
-  const chartH = H - padB - padT;
   const n = raw.length;
-  const barW = Math.max(2, Math.min(24, chartW/n - 2));
-  const step = chartW / n;
-
-  const bars = raw.map(([label, val], i) => {
-    const x = padL + i*step + (step-barW)/2;
-    const bh = (val/maxVal)*chartH;
-    const y = padT + chartH - bh;
-    const every = n <= 15 ? 1 : n <= 30 ? 2 : n <= 60 ? 5 : 10;
-    const showLabel = i % every === 0;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${bh.toFixed(1)}" fill="var(--gold)" rx="2" opacity="0.85">
-        <title>${label} : ${val} film${val>1?'s':''}</title></rect>
-      ${showLabel?`<text x="${(x+barW/2).toFixed(1)}" y="${H-5}" text-anchor="middle" font-size="${n>30?7:8}" fill="var(--text-dim)" transform="rotate(-45 ${(x+barW/2).toFixed(1)} ${H-5})">${label}</text>`:''}`;
+  // Use a horizontal bar chart for readability — label + bar + value on each row
+  const rows = raw.map(([label, val]) => {
+    const pct = Math.round(val/maxVal*100);
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+      + '<div style="font-size:11px;color:var(--text-dim);width:'+(mode==='decade'?32:28)+'px;flex-shrink:0;text-align:right">'+label+'</div>'
+      + '<div style="flex:1;background:var(--surface3);border-radius:3px;height:12px;overflow:hidden">'
+      + '<div style="background:var(--gold);height:100%;width:'+pct+'%;border-radius:3px;opacity:.85"></div>'
+      + '</div>'
+      + '<div style="font-size:11px;color:var(--text-dim);width:18px;flex-shrink:0;text-align:right">'+val+'</div>'
+      + '</div>';
   }).join('');
-
-  const yLabels = `
-    <text x="${padL-3}" y="${padT+6}" text-anchor="end" font-size="9" fill="var(--text-dim)">${maxVal}</text>
-    <text x="${padL-3}" y="${padT+chartH+4}" text-anchor="end" font-size="9" fill="var(--text-dim)">0</text>`;
-
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
-    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
-    <line x1="${padL}" y1="${padT+chartH}" x2="${W-padR}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
-    ${yLabels}${bars}
-  </svg>`;
+  return '<div style="max-height:220px;overflow-y:auto;padding-right:2px">'+rows+'</div>';
 }
 
 function renderStatusPie(seriesByStatus) {
@@ -1528,6 +1506,11 @@ function dashboard(el, actions) {
   const seriesByStatus = {encours:0,terminee:0,annulee:0};
   allSeries.forEach(s=>{ if(s.status) seriesByStatus[s.status]=(seriesByStatus[s.status]||0)+1; });
 
+  const seriesByCreatorObj = {};
+  allSeries.forEach(s=>parseNames(s.creators).forEach(c=>{ if(!c) return; if(!seriesByCreatorObj[c]) seriesByCreatorObj[c]=[]; seriesByCreatorObj[c].push({title:s.title,years:s.years||''}); }));
+  Object.values(seriesByCreatorObj).forEach(arr=>arr.sort((a,b)=>(parseInt(a.years)||0)-(parseInt(b.years)||0)));
+  const creatorsSorted = Object.entries(seriesByCreatorObj).sort((a,b)=>b[1].length-a[1].length).slice(0,20);
+
   const top10eps = [...allSeries].sort((a,b)=>serieSeenEps(b)-serieSeenEps(a)).slice(0,10);
   const top10dur = [...allSeries].sort((a,b)=>serieSeenMin(b)-serieSeenMin(a)).slice(0,10);
 
@@ -1590,35 +1573,6 @@ function dashboard(el, actions) {
   }
 
   // Pre-computed chart blocks (avoids nested backticks inside template literal)
-  const total_works = films.length + allSeries.length;
-  const filmPct = total_works ? Math.round(films.length/total_works*100) : 50;
-  const seriePct = 100 - filmPct;
-  const splitBarHTML = total_works ? (
-    '<div class="card" style="margin-bottom:16px">'
-    + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">'
-    + '<span>🎬 Films <b style="color:var(--gold)">'+films.length+'</b> <span style="color:var(--text-dim)">('+filmPct+'%)</span></span>'
-    + '<span>📺 Séries <b style="color:var(--gold)">'+allSeries.length+'</b> <span style="color:var(--text-dim)">('+seriePct+'%)</span></span>'
-    + '</div>'
-    + '<div style="display:flex;border-radius:6px;overflow:hidden;height:12px;background:var(--surface3)">'
-    + '<div style="background:var(--gold);width:'+filmPct+'%;transition:width .4s"></div>'
-    + '<div style="background:#4a9eff;flex:1"></div>'
-    + '</div></div>'
-  ) : '';
-
-  const monthData = buildMonthlyWatchData();
-  const monthlyChartHTML = monthData.hasData ? (
-    '<div class="card" style="margin-bottom:16px">'
-    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
-    + '<div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>'
-    + '<div style="display:flex;gap:4px">'
-    + '<button class="btn btn-xs" id="monthly-all-btn" data-mode="all" onclick="setMonthlyMode(this.dataset.mode)" style="background:var(--gold);color:#000;border:none">Tout</button>'
-    + '<button class="btn btn-xs btn-secondary" id="monthly-films-btn" data-mode="films" onclick="setMonthlyMode(this.dataset.mode)">Films</button>'
-    + '<button class="btn btn-xs btn-secondary" id="monthly-series-btn" data-mode="series" onclick="setMonthlyMode(this.dataset.mode)">Séries</button>'
-    + '</div></div>'
-    + '<div id="monthly-chart-container">' + renderMonthlyChart(monthData, 'all') + '</div>'
-    + '</div>'
-  ) : '';
-
   const yearChartBlockHTML = '<div class="card">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
     + '<div class="card-title" style="margin-bottom:0">📅 Films par année de sortie</div>'
@@ -1634,8 +1588,6 @@ function dashboard(el, actions) {
   el.innerHTML = `
   <div style="margin-bottom:20px">
     <div class="film-strip" style="margin-bottom:20px"></div>
-    ${splitBarHTML}
-    ${monthlyChartHTML}
     <div class="dash-mobile-tabs">
       <button class="dash-mobile-tab active" data-dashtab="films" onclick="setDashMobileTab('films')">🎬 Films</button>
       <button class="dash-mobile-tab" data-dashtab="series" onclick="setDashMobileTab('series')">📺 Séries</button>
@@ -1733,6 +1685,17 @@ function dashboard(el, actions) {
           <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Vu</th></tr></thead><tbody>
           ${top10dur.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${fmtDuration(serieSeenMin(s))}</td></tr>`).join('')}
           </tbody></table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎬 Créateurs les plus suivis</div>
+          ${creatorsSorted.length ? `<table class="data-table"><thead><tr><th>Créateur</th><th>Séries</th><th></th></tr></thead><tbody>
+          ${creatorsSorted.map(([c,ss],i)=>`
+            <tr style="cursor:pointer" onclick="toggleCreator(${i})"><td>${esc(c)}</td><td>${ss.length}</td><td><span class="expand-icon" data-creator="${i}">▶</span></td></tr>
+            <tr id="creator-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
+              <div style="display:flex;flex-wrap:wrap;gap:6px">${ss.map(s=>`<span class="badge badge-gold">${esc(s.title)}${s.years?` <span style="opacity:.6;font-size:10px">(${s.years})</span>`:''}</span>`).join('')}</div>
+            </td></tr>`).join('')}
+          </tbody></table>` : '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun créateur renseigné pour le moment.</div>'}
         </div>
 
         <div class="card">
