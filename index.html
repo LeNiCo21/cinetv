@@ -1311,306 +1311,10 @@ function buildWrappedNarrative(d) {
   return blocks;
 }
 
-function dashboard(el, actions) {
-  if(actions) actions.innerHTML = `
-    <button class="btn btn-secondary btn-sm" onclick="openFilmForm()">＋ Film</button>
-    <button class="btn btn-primary btn-sm" onclick="openSerieForm()">＋ Série</button>`;
-  const films = DB.films;
-  const allSeries = DB.series;
-
-  const totalFilmMin = films.reduce((a,f)=>a+(parseInt(f.duration)||0),0);
-  const filmsByCountry = {};
-  films.forEach(f => parseNames(f.countries).forEach(c=>{ filmsByCountry[c]=(filmsByCountry[c]||0)+1; }));
-  const filmsByGenre = {};
-  films.forEach(f => parseNames(f.genres).forEach(g=>{ filmsByGenre[g]=(filmsByGenre[g]||0)+1; }));
-  const filmsByDirObj = {};
-  films.forEach(f => parseNames(f.directors).forEach(d=>{
-    if(!filmsByDirObj[d]) filmsByDirObj[d]=[];
-    filmsByDirObj[d].push({title:f.title, year:parseInt(f.year)||0});
-  }));
-  Object.values(filmsByDirObj).forEach(arr=>arr.sort((a,b)=>a.year-b.year));
-  const filmsByYear = {};
-  films.forEach(f=>{ const y=f.year||'?'; filmsByYear[y]=(filmsByYear[y]||0)+1; });
-  const filmsByDecade = {};
-  films.forEach(f=>{ const d=decadeOf(f.year); if(d!==null) filmsByDecade[d]=(filmsByDecade[d]||0)+1; });
-
-  const top20films = [...films].sort((a,b)=>(parseInt(b.duration)||0)-(parseInt(a.duration)||0)).slice(0,20);
-  const dirsSorted = Object.entries(filmsByDirObj).sort((a,b)=>b[1].length-a[1].length).slice(0,20);
-  const countriesFilmSorted = Object.entries(filmsByCountry).sort((a,b)=>b[1]-a[1]);
-  const genresFilmSorted = Object.entries(filmsByGenre).sort((a,b)=>b[1]-a[1]);
-  const yearsSorted = Object.entries(filmsByYear).sort((a,b)=>parseInt(b[0])-parseInt(a[0]));
-  const decadesSorted = Object.entries(filmsByDecade).sort((a,b)=>b[1]-a[1]);
-
-  const totalSeriesEps = allSeries.reduce((a,s)=>a+serieSeenEps(s),0);
-  const totalSeriesMin = allSeries.reduce((a,s)=>a+serieSeenMin(s),0);
-  const seriesByCountry = {};
-  allSeries.forEach(s=>parseNames(s.countries).forEach(c=>{ seriesByCountry[c]=(seriesByCountry[c]||0)+1; }));
-  const seriesByGenre = {};
-  allSeries.forEach(s=>parseNames(s.genres).forEach(g=>{ seriesByGenre[g]=(seriesByGenre[g]||0)+1; }));
-  const seriesByPlatform = {};
-  allSeries.forEach(s=>parseNames(s.platforms).forEach(p=>{ seriesByPlatform[p]=(seriesByPlatform[p]||0)+1; }));
-  const seriesByStatus = {encours:0,terminee:0,annulee:0};
-  allSeries.forEach(s=>{ if(s.status) seriesByStatus[s.status]=(seriesByStatus[s.status]||0)+1; });
-
-  const seriesByCreatorObj = {};
-  allSeries.forEach(s => parseNames(s.creators).forEach(c => {
-    if(!c) return;
-    if(!seriesByCreatorObj[c]) seriesByCreatorObj[c] = [];
-    seriesByCreatorObj[c].push({title: s.title, years: s.years||''});
-  }));
-  Object.values(seriesByCreatorObj).forEach(arr => arr.sort((a,b) => (parseInt(a.years)||0)-(parseInt(b.years)||0)));
-  const creatorsSorted = Object.entries(seriesByCreatorObj).sort((a,b) => b[1].length - a[1].length).slice(0,20);
-
-  const top10eps = [...allSeries].sort((a,b)=>serieSeenEps(b)-serieSeenEps(a)).slice(0,10);
-  const top10dur = [...allSeries].sort((a,b)=>serieSeenMin(b)-serieSeenMin(a)).slice(0,10);
-
-  let inProgress = allSeries.filter(s=>!s.abandoned).filter(s=>{
-    const seen=serieSeenEps(s), total=serieTotalEps(s);
-    return seen>0 && seen<total;
-  });
-  inProgress.sort((a,b)=>{
-    if(a.id===_lastInteractedSerieId) return -1;
-    if(b.id===_lastInteractedSerieId) return 1;
-    return (b.lastInteracted||0)-(a.lastInteracted||0);
-  });
-
-  const showMoreContinue = inProgress.length > 4;
-  const inProgressShown = inProgress.slice(0,4);
-
-  function makeCollapsibleTable(rows, limit, id) {
-    const shown = rows.slice(0,limit);
-    const rest = rows.slice(limit);
-    let html = shown.map(r=>`<tr>${r}</tr>`).join('');
-    if(rest.length) html += `<tbody id="more-${id}" style="display:none">${rest.map(r=>`<tr>${r}</tr>`).join('')}</tbody>`;
-    return {html, hasMore: rest.length>0, id};
-  }
-
-  const filmCountryRows = countriesFilmSorted.map(([c,n])=>`<td>${esc(c)}</td><td>${n}</td>`);
-  const fcT = makeCollapsibleTable(filmCountryRows, 10, 'fc');
-  const filmGenreRows = genresFilmSorted.map(([g,n])=>`<td>${esc(g)}</td><td>${n}</td>`);
-  const fgT = makeCollapsibleTable(filmGenreRows, 10, 'fg');
-  const serieCountryRows = Object.entries(seriesByCountry).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<td>${esc(c)}</td><td>${n}</td>`);
-  const scT = makeCollapsibleTable(serieCountryRows, 10, 'sc');
-  const serieGenreRows = Object.entries(seriesByGenre).sort((a,b)=>b[1]-a[1]).map(([g,n])=>`<td>${esc(g)}</td><td>${n}</td>`);
-  const sgT = makeCollapsibleTable(serieGenreRows, 10, 'sg');
-  const platformRows = Object.entries(seriesByPlatform).sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<td>${esc(p)}</td><td>${n}</td>`);
-  const plT = makeCollapsibleTable(platformRows, 10, 'pl');
-  const decadeRows = decadesSorted.map(([d,n])=>`<td>${d}s</td><td>${n}</td>`);
-  const decT = makeCollapsibleTable(decadeRows, 5, 'dec');
-  const yearRows = yearsSorted.map(([y,n])=>`<td>${esc(y)}</td><td>${n}</td>`);
-  const yearT = makeCollapsibleTable(yearRows, 5, 'yr');
-
-
-  function continueCardHTML(s) {
-    const nextEp=findNextEpisode(s);
-    const pct=Math.round(serieSeenEps(s)/serieTotalEps(s)*100);
-    let epLabel = 'À jour';
-    if(nextEp){
-      const epObj = s.seasons[nextEp.si]?.episodes[nextEp.ei];
-      epLabel = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
-    }
-    return `<div class="continue-card">
-      <div class="continue-info">
-        <div class="continue-title" onclick="goToSerie('${s.id}')" style="cursor:pointer">${esc(s.title)}</div>
-        <div class="continue-ep">${esc(epLabel)}</div>
-        <div style="margin-top:6px">
-          <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
-          <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}%</div>
-        </div>
-      </div>
-      ${nextEp?`<button class="btn btn-primary btn-sm" onclick="dashMarkEpSeen('${s.id}',${nextEp.si},${nextEp.ei})">✓ Vu</button>`:''}
-    </div>`;
-  }
-
-  // Pre-compute blocks that use nested template literals
-  const splitBarHTML = (()=>{
-    const total = films.length + allSeries.length;
-    if(!total) return '';
-    const filmPct = Math.round(films.length/total*100);
-    const seriePct = 100-filmPct;
-    return '<div class="card" style="margin-bottom:16px">'
-      + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">'
-      + '<span>🎬 Films <b style="color:var(--gold)">'+films.length+'</b> <span style="color:var(--text-dim)">('+filmPct+'%)</span></span>'
-      + '<span>📺 Séries <b style="color:var(--gold)">'+allSeries.length+'</b> <span style="color:var(--text-dim)">('+seriePct+'%)</span></span>'
-      + '</div>'
-      + '<div style="display:flex;border-radius:6px;overflow:hidden;height:12px;background:var(--surface3)">'
-      + '<div style="background:var(--gold);width:'+filmPct+'%;transition:width .4s"></div>'
-      + '<div style="background:#4a9eff;flex:1"></div>'
-      + '</div></div>';
-  })();
-
-  const monthlyChartHTML = (()=>{
-    const monthData = buildMonthlyWatchData();
-    if(!monthData.hasData) return '';
-    return '<div class="card" style="margin-bottom:16px">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
-      + '<div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>'
-      + '<div style="display:flex;gap:4px">'
-      + '<div style="display:flex;gap:4px">'
-      + '<button class="btn btn-xs" id="monthly-all-btn" data-mode="all" onclick="setMonthlyMode(this.dataset.mode)" style="background:var(--gold);color:#000;border:none">Tout</button>'
-      + '<button class="btn btn-xs btn-secondary" id="monthly-films-btn" data-mode="films" onclick="setMonthlyMode(this.dataset.mode)">Films</button>'
-      + '<button class="btn btn-xs btn-secondary" id="monthly-series-btn" data-mode="series" onclick="setMonthlyMode(this.dataset.mode)">Séries</button>'
-      + '<div id="monthly-chart-container">'+renderMonthlyChart(monthData, 'all')+'</div>'
-      + '</div>';
-  })();
-
-  const sagasBlockHTML = (()=>{
-    const sagas = DB.sagas||[];
-    const dilogies = sagas.filter(sg=>sagaFilmCount(sg)===2);
-    const trilogies = sagas.filter(sg=>sagaFilmCount(sg)===3);
-    const sagasPlus = sagas.filter(sg=>sagaFilmCount(sg)>=4);
-    if(!sagas.length) return '';
-    return '<div class="card">'
-      + '<div class="card-title">🎞️ Sagas</div>'
-      + '<table class="data-table"><thead><tr><th>Type</th><th>Nombre</th></tr></thead><tbody>'
-      + (dilogies.length?'<tr><td>Dilogies</td><td>'+dilogies.length+'</td></tr>':'')
-      + (trilogies.length?'<tr><td>Trilogies</td><td>'+trilogies.length+'</td></tr>':'')
-      + (sagasPlus.length?'<tr><td>Sagas (4+ films)</td><td>'+sagasPlus.length+'</td></tr>':'')
-      + '<tr style="font-weight:600"><td>Total</td><td>'+sagas.length+'</td></tr>'
-      + '</tbody></table></div>';
-  })();
-
-  el.innerHTML = `
-  <div style="margin-bottom:20px">
-    <div class="film-strip" style="margin-bottom:20px"></div>
-    ${splitBarHTML}
-    ${monthlyChartHTML}
-    <div class="dash-mobile-tabs">
-      <button class="dash-mobile-tab active" data-dashtab="films" onclick="setDashMobileTab('films')">🎬 Films</button>
-      <button class="dash-mobile-tab" data-dashtab="series" onclick="setDashMobileTab('series')">📺 Séries</button>
-    </div>
-    <div class="dash-split">
-      <div class="dash-side dash-active" data-dashside="films">
-        <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">🎬 Films</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div class="stat-card"><div class="stat-val">${films.length}</div><div class="stat-label">Films vus</div></div>
-          <div class="stat-card"><div class="stat-val" style="font-size:18px">${fmtDuration(totalFilmMin)}</div><div class="stat-label">Durée totale</div></div>
-        </div>
-
-        ${sagasBlockHTML}
-
-        <div class="card">
-          <div class="card-title">🏆 Top 20 — Films les plus longs</div>
-          <table class="data-table"><thead><tr><th>#</th><th>Titre</th><th>Durée</th></tr></thead><tbody>
-          ${top20films.map((f,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(f.title)}</td><td>${fmtH(parseInt(f.duration)||0)}</td></tr>`).join('')}
-          </tbody></table>
-        </div>
-
-        <div class="card">
-          <div class="card-title">🎥 Réalisateurs les plus vus</div>
-          <table class="data-table"><thead><tr><th>Réalisateur</th><th>Films</th><th></th></tr></thead><tbody>
-          ${dirsSorted.map(([d,fs],i)=>`
-            <tr style="cursor:pointer" onclick="toggleDir(${i})"><td>${esc(d)}</td><td>${fs.length}</td><td><span class="expand-icon" data-dir="${i}">▶</span></td></tr>
-            <tr id="dir-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
-              <div style="display:flex;flex-wrap:wrap;gap:6px">${fs.map(f=>`<span class="badge badge-gold">${esc(f.title)}${f.year?` <span style="opacity:.6;font-size:10px">(${f.year})</span>`:''}</span>`).join('')}</div>
-            </td></tr>`).join('')}
-          </tbody></table>
-        </div>
-
-        <div class="card">
-          <div class="card-title">🎭 Films par genre</div>
-          <table class="data-table"><thead><tr><th>Genre</th><th>Films</th></tr></thead>
-          <tbody>${fgT.html}</tbody></table>
-          ${fgT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${fgT.id}',this)">▼ Voir tout (${genresFilmSorted.length})</div>`:fgT.html?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
-        </div>
-
-        <div class="card">
-          <div class="card-title">🌍 Films par pays</div>
-          <table class="data-table"><thead><tr><th>Pays</th><th>Films</th></tr></thead>
-          <tbody>${fcT.html}</tbody></table>
-          ${fcT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${fcT.id}',this)">▼ Voir tout (${countriesFilmSorted.length})</div>`:''}
-        </div>
-
-        <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <div class="card-title" style="margin-bottom:0">📅 Films par année de sortie</div>
-            <div style="display:flex;gap:4px">
-              <button class="btn btn-xs" id="chart-decade-btn" onclick="setYearChartMode('decade')" style="background:var(--gold);color:#000;border:none">Décennie</button>
-              <button class="btn btn-xs btn-secondary" id="chart-year-btn" onclick="setYearChartMode('year')">Année</button>
-            </div>
-          </div>
-          <div id="year-chart-container">${renderYearChart('decade', filmsByDecade, filmsByYear)}</div>
-        </div>
-      </div>
-
-      <div class="dash-side" data-dashside="series">
-        <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">📺 Séries</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-          <div class="stat-card"><div class="stat-val">${allSeries.length}</div><div class="stat-label">Séries</div></div>
-          <div class="stat-card"><div class="stat-val">${totalSeriesEps}</div><div class="stat-label">Épisodes vus</div></div>
-          <div class="stat-card"><div class="stat-val" style="font-size:15px">${fmtDuration(totalSeriesMin)}</div><div class="stat-label">Durée totale</div></div>
-        </div>
-
-        ${inProgress.length ? `
-        <div class="card">
-          <div class="card-title">▶ Continuer le visionnage</div>
-          <div style="display:flex;flex-direction:column;gap:10px" id="continue-list">
-          ${inProgressShown.map(continueCardHTML).join('')}
-          </div>
-          ${showMoreContinue?`<div class="show-more-btn" id="continue-more-btn" onclick="toggleContinueMore()">▼ Voir les ${inProgress.length-4} autres</div>`:''}
-          ${showMoreContinue?`<div id="continue-more-list" style="display:none;flex-direction:column;gap:10px;margin-top:10px">
-          ${inProgress.slice(4).map(continueCardHTML).join('')}
-          </div>`:''}
-        </div>` : ''}
-
-        <div class="card">
-          <div class="card-title">🏆 Top 10 — Épisodes vus</div>
-          <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Épisodes vus</th></tr></thead><tbody>
-          ${top10eps.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${serieSeenEps(s)}</td></tr>`).join('')}
-          </tbody></table>
-        </div>
-
-        <div class="card">
-          <div class="card-title">⏱ Top 10 — Durée visionnée</div>
-          <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Vu</th></tr></thead><tbody>
-          ${top10dur.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${fmtDuration(serieSeenMin(s))}</td></tr>`).join('')}
-          </tbody></table>
-        </div>
-
-        <div class="card">
-          <div class="card-title">🎬 Créateurs les plus suivis</div>
-          ${creatorsSorted.length ? `<table class="data-table"><thead><tr><th>Créateur</th><th>Séries</th><th></th></tr></thead><tbody>
-          ${creatorsSorted.map(([c,ss],i)=>`
-            <tr style="cursor:pointer" onclick="toggleCreator(${i})"><td>${esc(c)}</td><td>${ss.length}</td><td><span class="expand-icon" data-creator="${i}">▶</span></td></tr>
-            <tr id="creator-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
-              <div style="display:flex;flex-wrap:wrap;gap:6px">${ss.map(s=>`<span class="badge badge-gold">${esc(s.title)}${s.years?` <span style="opacity:.6;font-size:10px">(${s.years})</span>`:''}</span>`).join('')}</div>
-            </td></tr>`).join('')}
-          </tbody></table>` : '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun créateur renseigné pour le moment.</div>'}
-        </div>
-
-        <div class="card">
-          <div class="card-title">🎭 Séries par genre</div>
-          <table class="data-table"><thead><tr><th>Genre</th><th>Séries</th></tr></thead>
-          <tbody>${sgT.html}</tbody></table>
-          ${sgT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${sgT.id}',this)">▼ Voir tout (${serieGenreRows.length})</div>`:sgT.html?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
-        </div>
-
-        <div class="card">
-          <div class="card-title">🌍 Séries par pays</div>
-          <table class="data-table"><thead><tr><th>Pays</th><th>Séries</th></tr></thead>
-          <tbody>${scT.html}</tbody></table>
-          ${scT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${scT.id}',this)">▼ Voir tout (${serieCountryRows.length})</div>`:''}
-        </div>
-
-        <div class="card">
-          <div class="card-title">📡 Séries par plateforme</div>
-          <table class="data-table"><thead><tr><th>Plateforme</th><th>Séries</th></tr></thead>
-          <tbody>${plT.html}</tbody></table>
-          ${plT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${plT.id}',this)">▼ Voir tout (${platformRows.length})</div>`:''}
-        </div>
-
-        <div class="card">
-          <div class="card-title">🎭 Séries par statut</div>
-          ${renderStatusPie(seriesByStatus)}
-        </div>
-      </div>
-    </div>
-  </div>`;
-}
-
 // ── Chart helpers ─────────────────────────────────────────────
 
 function buildMonthlyWatchData() {
+  const MONTHS = ['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
   const log = DB.watchLog || [];
   if(!log.length) return {hasData:false};
   // Build per-month totals, keyed "YYYY-MM"
@@ -1631,7 +1335,7 @@ function buildMonthlyWatchData() {
   let y=minY, m=minM;
   while(y < maxY || (y===maxY && m<=maxM)) {
     const key = `${y}-${String(m).padStart(2,'0')}`;
-    labels.push(MONTH_NAMES_FR[m-1].slice(0,3)+' '+String(y).slice(2));
+    labels.push(MONTHS[m-1]+' '+String(y).slice(2));
     allVals.push(allMonths[key]||0);
     filmVals.push(filmMonths[key]||0);
     serieVals.push(serieMonths[key]||0);
@@ -1782,6 +1486,284 @@ window.setMonthlyMode = function(mode) {
     btn.className = m===mode?'btn btn-xs':'btn btn-xs btn-secondary';
   });
 };
+
+function dashboard(el, actions) {
+  if(actions) actions.innerHTML = `
+    <button class="btn btn-secondary btn-sm" onclick="openFilmForm()">＋ Film</button>
+    <button class="btn btn-primary btn-sm" onclick="openSerieForm()">＋ Série</button>`;
+  const films = DB.films;
+  const allSeries = DB.series;
+
+  const totalFilmMin = films.reduce((a,f)=>a+(parseInt(f.duration)||0),0);
+  const filmsByCountry = {};
+  films.forEach(f => parseNames(f.countries).forEach(c=>{ filmsByCountry[c]=(filmsByCountry[c]||0)+1; }));
+  const filmsByGenre = {};
+  films.forEach(f => parseNames(f.genres).forEach(g=>{ filmsByGenre[g]=(filmsByGenre[g]||0)+1; }));
+  const filmsByDirObj = {};
+  films.forEach(f => parseNames(f.directors).forEach(d=>{
+    if(!filmsByDirObj[d]) filmsByDirObj[d]=[];
+    filmsByDirObj[d].push({title:f.title, year:parseInt(f.year)||0});
+  }));
+  Object.values(filmsByDirObj).forEach(arr=>arr.sort((a,b)=>a.year-b.year));
+  const filmsByYear = {};
+  films.forEach(f=>{ const y=f.year||'?'; filmsByYear[y]=(filmsByYear[y]||0)+1; });
+  const filmsByDecade = {};
+  films.forEach(f=>{ const d=decadeOf(f.year); if(d!==null) filmsByDecade[d]=(filmsByDecade[d]||0)+1; });
+
+  const top20films = [...films].sort((a,b)=>(parseInt(b.duration)||0)-(parseInt(a.duration)||0)).slice(0,20);
+  const dirsSorted = Object.entries(filmsByDirObj).sort((a,b)=>b[1].length-a[1].length).slice(0,20);
+  const countriesFilmSorted = Object.entries(filmsByCountry).sort((a,b)=>b[1]-a[1]);
+  const genresFilmSorted = Object.entries(filmsByGenre).sort((a,b)=>b[1]-a[1]);
+  const yearsSorted = Object.entries(filmsByYear).sort((a,b)=>parseInt(b[0])-parseInt(a[0]));
+  const decadesSorted = Object.entries(filmsByDecade).sort((a,b)=>b[1]-a[1]);
+
+  const totalSeriesEps = allSeries.reduce((a,s)=>a+serieSeenEps(s),0);
+  const totalSeriesMin = allSeries.reduce((a,s)=>a+serieSeenMin(s),0);
+  const seriesByCountry = {};
+  allSeries.forEach(s=>parseNames(s.countries).forEach(c=>{ seriesByCountry[c]=(seriesByCountry[c]||0)+1; }));
+  const seriesByGenre = {};
+  allSeries.forEach(s=>parseNames(s.genres).forEach(g=>{ seriesByGenre[g]=(seriesByGenre[g]||0)+1; }));
+  const seriesByPlatform = {};
+  allSeries.forEach(s=>parseNames(s.platforms).forEach(p=>{ seriesByPlatform[p]=(seriesByPlatform[p]||0)+1; }));
+  const seriesByStatus = {encours:0,terminee:0,annulee:0};
+  allSeries.forEach(s=>{ if(s.status) seriesByStatus[s.status]=(seriesByStatus[s.status]||0)+1; });
+
+  const top10eps = [...allSeries].sort((a,b)=>serieSeenEps(b)-serieSeenEps(a)).slice(0,10);
+  const top10dur = [...allSeries].sort((a,b)=>serieSeenMin(b)-serieSeenMin(a)).slice(0,10);
+
+  let inProgress = allSeries.filter(s=>!s.abandoned).filter(s=>{
+    const seen=serieSeenEps(s), total=serieTotalEps(s);
+    return seen>0 && seen<total;
+  });
+  inProgress.sort((a,b)=>{
+    if(a.id===_lastInteractedSerieId) return -1;
+    if(b.id===_lastInteractedSerieId) return 1;
+    return (b.lastInteracted||0)-(a.lastInteracted||0);
+  });
+
+  const showMoreContinue = inProgress.length > 4;
+  const inProgressShown = inProgress.slice(0,4);
+
+  function makeCollapsibleTable(rows, limit, id) {
+    const shown = rows.slice(0,limit);
+    const rest = rows.slice(limit);
+    let html = shown.map(r=>`<tr>${r}</tr>`).join('');
+    if(rest.length) html += `<tbody id="more-${id}" style="display:none">${rest.map(r=>`<tr>${r}</tr>`).join('')}</tbody>`;
+    return {html, hasMore: rest.length>0, id};
+  }
+
+  const filmCountryRows = countriesFilmSorted.map(([c,n])=>`<td>${esc(c)}</td><td>${n}</td>`);
+  const fcT = makeCollapsibleTable(filmCountryRows, 10, 'fc');
+  const filmGenreRows = genresFilmSorted.map(([g,n])=>`<td>${esc(g)}</td><td>${n}</td>`);
+  const fgT = makeCollapsibleTable(filmGenreRows, 10, 'fg');
+  const serieCountryRows = Object.entries(seriesByCountry).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<td>${esc(c)}</td><td>${n}</td>`);
+  const scT = makeCollapsibleTable(serieCountryRows, 10, 'sc');
+  const serieGenreRows = Object.entries(seriesByGenre).sort((a,b)=>b[1]-a[1]).map(([g,n])=>`<td>${esc(g)}</td><td>${n}</td>`);
+  const sgT = makeCollapsibleTable(serieGenreRows, 10, 'sg');
+  const platformRows = Object.entries(seriesByPlatform).sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<td>${esc(p)}</td><td>${n}</td>`);
+  const plT = makeCollapsibleTable(platformRows, 10, 'pl');
+  const decadeRows = decadesSorted.map(([d,n])=>`<td>${d}s</td><td>${n}</td>`);
+  const decT = makeCollapsibleTable(decadeRows, 5, 'dec');
+  const yearRows = yearsSorted.map(([y,n])=>`<td>${esc(y)}</td><td>${n}</td>`);
+  const yearT = makeCollapsibleTable(yearRows, 5, 'yr');
+
+
+  function continueCardHTML(s) {
+    const nextEp=findNextEpisode(s);
+    const pct=Math.round(serieSeenEps(s)/serieTotalEps(s)*100);
+    let epLabel = 'À jour';
+    if(nextEp){
+      const epObj = s.seasons[nextEp.si]?.episodes[nextEp.ei];
+      epLabel = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
+    }
+    return `<div class="continue-card">
+      <div class="continue-info">
+        <div class="continue-title" onclick="goToSerie('${s.id}')" style="cursor:pointer">${esc(s.title)}</div>
+        <div class="continue-ep">${esc(epLabel)}</div>
+        <div style="margin-top:6px">
+          <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}%</div>
+        </div>
+      </div>
+      ${nextEp?`<button class="btn btn-primary btn-sm" onclick="dashMarkEpSeen('${s.id}',${nextEp.si},${nextEp.ei})">✓ Vu</button>`:''}
+    </div>`;
+  }
+
+  // Pre-computed chart blocks (avoids nested backticks inside template literal)
+  const total_works = films.length + allSeries.length;
+  const filmPct = total_works ? Math.round(films.length/total_works*100) : 50;
+  const seriePct = 100 - filmPct;
+  const splitBarHTML = total_works ? (
+    '<div class="card" style="margin-bottom:16px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">'
+    + '<span>🎬 Films <b style="color:var(--gold)">'+films.length+'</b> <span style="color:var(--text-dim)">('+filmPct+'%)</span></span>'
+    + '<span>📺 Séries <b style="color:var(--gold)">'+allSeries.length+'</b> <span style="color:var(--text-dim)">('+seriePct+'%)</span></span>'
+    + '</div>'
+    + '<div style="display:flex;border-radius:6px;overflow:hidden;height:12px;background:var(--surface3)">'
+    + '<div style="background:var(--gold);width:'+filmPct+'%;transition:width .4s"></div>'
+    + '<div style="background:#4a9eff;flex:1"></div>'
+    + '</div></div>'
+  ) : '';
+
+  const monthData = buildMonthlyWatchData();
+  const monthlyChartHTML = monthData.hasData ? (
+    '<div class="card" style="margin-bottom:16px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+    + '<div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>'
+    + '<div style="display:flex;gap:4px">'
+    + '<button class="btn btn-xs" id="monthly-all-btn" data-mode="all" onclick="setMonthlyMode(this.dataset.mode)" style="background:var(--gold);color:#000;border:none">Tout</button>'
+    + '<button class="btn btn-xs btn-secondary" id="monthly-films-btn" data-mode="films" onclick="setMonthlyMode(this.dataset.mode)">Films</button>'
+    + '<button class="btn btn-xs btn-secondary" id="monthly-series-btn" data-mode="series" onclick="setMonthlyMode(this.dataset.mode)">Séries</button>'
+    + '</div></div>'
+    + '<div id="monthly-chart-container">' + renderMonthlyChart(monthData, 'all') + '</div>'
+    + '</div>'
+  ) : '';
+
+  const yearChartBlockHTML = '<div class="card">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+    + '<div class="card-title" style="margin-bottom:0">📅 Films par année de sortie</div>'
+    + '<div style="display:flex;gap:4px">'
+    + '<button class="btn btn-xs" id="chart-decade-btn" data-mode="decade" onclick="setYearChartMode(this.dataset.mode)" style="background:var(--gold);color:#000;border:none">Décennie</button>'
+    + '<button class="btn btn-xs btn-secondary" id="chart-year-btn" data-mode="year" onclick="setYearChartMode(this.dataset.mode)">Année</button>'
+    + '</div></div>'
+    + '<div id="year-chart-container">' + renderYearChart('decade', filmsByDecade, filmsByYear) + '</div>'
+    + '</div>';
+
+  const statusPieHTML = renderStatusPie(seriesByStatus);
+
+  el.innerHTML = `
+  <div style="margin-bottom:20px">
+    <div class="film-strip" style="margin-bottom:20px"></div>
+    ${splitBarHTML}
+    ${monthlyChartHTML}
+    <div class="dash-mobile-tabs">
+      <button class="dash-mobile-tab active" data-dashtab="films" onclick="setDashMobileTab('films')">🎬 Films</button>
+      <button class="dash-mobile-tab" data-dashtab="series" onclick="setDashMobileTab('series')">📺 Séries</button>
+    </div>
+    <div class="dash-split">
+      <div class="dash-side dash-active" data-dashside="films">
+        <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">🎬 Films</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="stat-card"><div class="stat-val">${films.length}</div><div class="stat-label">Films vus</div></div>
+          <div class="stat-card"><div class="stat-val" style="font-size:18px">${fmtDuration(totalFilmMin)}</div><div class="stat-label">Durée totale</div></div>
+        </div>
+
+        ${(()=>{
+          const sagas = DB.sagas||[];
+          const dilogies = sagas.filter(sg=>sagaFilmCount(sg)===2);
+          const trilogies = sagas.filter(sg=>sagaFilmCount(sg)===3);
+          const sagasPlus = sagas.filter(sg=>sagaFilmCount(sg)>=4);
+          if(!sagas.length) return '';
+          return `<div class="card">
+            <div class="card-title">🎞️ Sagas</div>
+            <table class="data-table"><thead><tr><th>Type</th><th>Nombre</th></tr></thead><tbody>
+              ${dilogies.length?`<tr><td>Dilogies</td><td>${dilogies.length}</td></tr>`:''}
+              ${trilogies.length?`<tr><td>Trilogies</td><td>${trilogies.length}</td></tr>`:''}
+              ${sagasPlus.length?`<tr><td>Sagas (4+ films)</td><td>${sagasPlus.length}</td></tr>`:''}
+              <tr style="font-weight:600"><td>Total</td><td>${sagas.length}</td></tr>
+            </tbody></table>
+          </div>`;
+        })()}
+
+        <div class="card">
+          <div class="card-title">🏆 Top 20 — Films les plus longs</div>
+          <table class="data-table"><thead><tr><th>#</th><th>Titre</th><th>Durée</th></tr></thead><tbody>
+          ${top20films.map((f,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(f.title)}</td><td>${fmtH(parseInt(f.duration)||0)}</td></tr>`).join('')}
+          </tbody></table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎥 Réalisateurs les plus vus</div>
+          <table class="data-table"><thead><tr><th>Réalisateur</th><th>Films</th><th></th></tr></thead><tbody>
+          ${dirsSorted.map(([d,fs],i)=>`
+            <tr style="cursor:pointer" onclick="toggleDir(${i})"><td>${esc(d)}</td><td>${fs.length}</td><td><span class="expand-icon" data-dir="${i}">▶</span></td></tr>
+            <tr id="dir-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
+              <div style="display:flex;flex-wrap:wrap;gap:6px">${fs.map(f=>`<span class="badge badge-gold">${esc(f.title)}${f.year?` <span style="opacity:.6;font-size:10px">(${f.year})</span>`:''}</span>`).join('')}</div>
+            </td></tr>`).join('')}
+          </tbody></table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎭 Films par genre</div>
+          <table class="data-table"><thead><tr><th>Genre</th><th>Films</th></tr></thead>
+          <tbody>${fgT.html}</tbody></table>
+          ${fgT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${fgT.id}',this)">▼ Voir tout (${genresFilmSorted.length})</div>`:fgT.html?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
+        </div>
+
+        <div class="card">
+        <div class="card">
+          <div class="card-title">🌍 Films par pays</div>
+          <table class="data-table"><thead><tr><th>Pays</th><th>Films</th></tr></thead>
+          <tbody>${fcT.html}</tbody></table>
+          ${fcT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${fcT.id}',this)">▼ Voir tout (${countriesFilmSorted.length})</div>`:''}
+        </div>
+
+        ${yearChartBlockHTML}
+      </div>
+
+      <div class="dash-side" data-dashside="series">
+        <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">📺 Séries</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div class="stat-card"><div class="stat-val">${allSeries.length}</div><div class="stat-label">Séries</div></div>
+          <div class="stat-card"><div class="stat-val">${totalSeriesEps}</div><div class="stat-label">Épisodes vus</div></div>
+          <div class="stat-card"><div class="stat-val" style="font-size:15px">${fmtDuration(totalSeriesMin)}</div><div class="stat-label">Durée totale</div></div>
+        </div>
+
+        ${inProgress.length ? `
+        <div class="card">
+          <div class="card-title">▶ Continuer le visionnage</div>
+          <div style="display:flex;flex-direction:column;gap:10px" id="continue-list">
+          ${inProgressShown.map(continueCardHTML).join('')}
+          </div>
+          ${showMoreContinue?`<div class="show-more-btn" id="continue-more-btn" onclick="toggleContinueMore()">▼ Voir les ${inProgress.length-4} autres</div>`:''}
+          ${showMoreContinue?`<div id="continue-more-list" style="display:none;flex-direction:column;gap:10px;margin-top:10px">
+          ${inProgress.slice(4).map(continueCardHTML).join('')}
+          </div>`:''}
+        </div>` : ''}
+
+        <div class="card">
+          <div class="card-title">🏆 Top 10 — Épisodes vus</div>
+          <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Épisodes vus</th></tr></thead><tbody>
+          ${top10eps.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${serieSeenEps(s)}</td></tr>`).join('')}
+          </tbody></table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⏱ Top 10 — Durée visionnée</div>
+          <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Vu</th></tr></thead><tbody>
+          ${top10dur.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${fmtDuration(serieSeenMin(s))}</td></tr>`).join('')}
+          </tbody></table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎭 Séries par genre</div>
+          <table class="data-table"><thead><tr><th>Genre</th><th>Séries</th></tr></thead>
+          <tbody>${sgT.html}</tbody></table>
+          ${sgT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${sgT.id}',this)">▼ Voir tout (${serieGenreRows.length})</div>`:sgT.html?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
+        </div>
+
+        <div class="card">
+          <div class="card-title">🌍 Séries par pays</div>
+          <table class="data-table"><thead><tr><th>Pays</th><th>Séries</th></tr></thead>
+          <tbody>${scT.html}</tbody></table>
+          ${scT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${scT.id}',this)">▼ Voir tout (${serieCountryRows.length})</div>`:''}
+        </div>
+
+        <div class="card">
+          <div class="card-title">📡 Séries par plateforme</div>
+          <table class="data-table"><thead><tr><th>Plateforme</th><th>Séries</th></tr></thead>
+          <tbody>${plT.html}</tbody></table>
+          ${plT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${plT.id}',this)">▼ Voir tout (${platformRows.length})</div>`:''}
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎭 Séries par statut</div>
+          ${statusPieHTML}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
 
 function toggleMore(id, btn) {
   const el = document.getElementById('more-'+id);
