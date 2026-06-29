@@ -282,6 +282,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
   </div>
 </nav>
 <div id="sidebar-overlay" onclick="closeSidebar()"></div>
+<button id="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Retour en haut" style="display:none;position:fixed;bottom:20px;right:16px;z-index:500;width:40px;height:40px;border-radius:50%;background:var(--gold);color:#000;border:none;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);align-items:center;justify-content:center">↑</button>
 <div id="main">
   <div class="topbar">
     <button id="hamburger-btn" class="hamburger-btn" onclick="toggleSidebar()" aria-label="Menu">
@@ -299,7 +300,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.2.1';
+const APP_VERSION = 'v3.3.0';
 
 function loadDB() {
   try {
@@ -750,6 +751,18 @@ function render(page) {
   pageMap[page](content, actions);
 }
 render('dashboard');
+
+// Show/hide scroll-to-top button
+(function() {
+  const btn = document.getElementById('scroll-top-btn');
+  const main = document.getElementById('main');
+  const scrollEl = main || window;
+  const getScroll = () => main ? main.scrollTop : window.scrollY;
+  scrollEl.addEventListener('scroll', () => {
+    const show = getScroll() > 200;
+    btn.style.display = show ? 'flex' : 'none';
+  }, {passive:true});
+})();
 
 // Register the service worker so the app installs and works offline.
 // Wrapped in a guard since this file may also run as a local double-click
@@ -1412,6 +1425,37 @@ function dashboard(el, actions) {
   el.innerHTML = `
   <div style="margin-bottom:20px">
     <div class="film-strip" style="margin-bottom:20px"></div>
+    ${(()=>{
+      const total = films.length + allSeries.length;
+      if(!total) return '';
+      const filmPct = Math.round(films.length/total*100);
+      const seriePct = 100-filmPct;
+      return `<div class="card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
+          <span>🎬 Films <b style="color:var(--gold)">${films.length}</b> <span style="color:var(--text-dim)">(${filmPct}%)</span></span>
+          <span>📺 Séries <b style="color:var(--gold)">${allSeries.length}</b> <span style="color:var(--text-dim)">(${seriePct}%)</span></span>
+        </div>
+        <div style="display:flex;border-radius:6px;overflow:hidden;height:12px;background:var(--surface3)">
+          <div style="background:var(--gold);width:${filmPct}%;transition:width .4s"></div>
+          <div style="background:#4a9eff;flex:1"></div>
+        </div>
+      </div>`;
+    })()}
+    ${(()=>{
+      const monthData = buildMonthlyWatchData();
+      if(!monthData.hasData) return '';
+      return `<div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-xs" id="monthly-all-btn" onclick="setMonthlyMode('all')" style="background:var(--gold);color:#000;border:none">Tout</button>
+            <button class="btn btn-xs btn-secondary" id="monthly-films-btn" onclick="setMonthlyMode('films')">Films</button>
+            <button class="btn btn-xs btn-secondary" id="monthly-series-btn" onclick="setMonthlyMode('series')">Séries</button>
+          </div>
+        </div>
+        <div id="monthly-chart-container">${renderMonthlyChart(monthData, 'all')}</div>
+      </div>`;
+    })()}
     <div class="dash-mobile-tabs">
       <button class="dash-mobile-tab active" data-dashtab="films" onclick="setDashMobileTab('films')">🎬 Films</button>
       <button class="dash-mobile-tab" data-dashtab="series" onclick="setDashMobileTab('series')">📺 Séries</button>
@@ -1452,7 +1496,7 @@ function dashboard(el, actions) {
           <div class="card-title">🎥 Réalisateurs les plus vus</div>
           <table class="data-table"><thead><tr><th>Réalisateur</th><th>Films</th><th></th></tr></thead><tbody>
           ${dirsSorted.map(([d,fs],i)=>`
-            <tr style="cursor:pointer" onclick="toggleDir(${i})"><td><span style="cursor:pointer;color:var(--gold);text-decoration:underline" onclick="event.stopPropagation();openFilmography('${encodeURIComponent(d)}')">${esc(d)}</span></td><td>${fs.length}</td><td><span class="expand-icon" data-dir="${i}">▶</span></td></tr>
+            <tr style="cursor:pointer" onclick="toggleDir(${i})"><td>${esc(d)}</td><td>${fs.length}</td><td><span class="expand-icon" data-dir="${i}">▶</span></td></tr>
             <tr id="dir-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
               <div style="display:flex;flex-wrap:wrap;gap:6px">${fs.map(f=>`<span class="badge badge-gold">${esc(f.title)}${f.year?` <span style="opacity:.6;font-size:10px">(${f.year})</span>`:''}</span>`).join('')}</div>
             </td></tr>`).join('')}
@@ -1474,17 +1518,14 @@ function dashboard(el, actions) {
         </div>
 
         <div class="card">
-          <div class="card-title">📆 Films par décennie</div>
-          <table class="data-table"><thead><tr><th>Décennie</th><th>Films</th></tr></thead>
-          <tbody>${decT.html}</tbody></table>
-          ${decT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${decT.id}',this)">▼ Voir tout (${decadesSorted.length})</div>`:''}
-        </div>
-
-        <div class="card">
-          <div class="card-title">📅 Films par année</div>
-          <table class="data-table"><thead><tr><th>Année</th><th>Films</th></tr></thead>
-          <tbody>${yearT.html}</tbody></table>
-          ${yearT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${yearT.id}',this)">▼ Voir tout (${yearsSorted.length})</div>`:''}
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="card-title" style="margin-bottom:0">📅 Films par année de sortie</div>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-xs" id="chart-decade-btn" onclick="setYearChartMode('decade')" style="background:var(--gold);color:#000;border:none">Décennie</button>
+              <button class="btn btn-xs btn-secondary" id="chart-year-btn" onclick="setYearChartMode('year')">Année</button>
+            </div>
+          </div>
+          <div id="year-chart-container">${renderYearChart('decade', filmsByDecade, filmsByYear)}</div>
         </div>
       </div>
 
@@ -1526,7 +1567,7 @@ function dashboard(el, actions) {
           <div class="card-title">🎬 Créateurs les plus suivis</div>
           ${creatorsSorted.length ? `<table class="data-table"><thead><tr><th>Créateur</th><th>Séries</th><th></th></tr></thead><tbody>
           ${creatorsSorted.map(([c,ss],i)=>`
-            <tr style="cursor:pointer" onclick="toggleCreator(${i})"><td><span style="cursor:pointer;color:var(--gold);text-decoration:underline" onclick="event.stopPropagation();openFilmography('${encodeURIComponent(c)}')">${esc(c)}</span></td><td>${ss.length}</td><td><span class="expand-icon" data-creator="${i}">▶</span></td></tr>
+            <tr style="cursor:pointer" onclick="toggleCreator(${i})"><td>${esc(c)}</td><td>${ss.length}</td><td><span class="expand-icon" data-creator="${i}">▶</span></td></tr>
             <tr id="creator-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
               <div style="display:flex;flex-wrap:wrap;gap:6px">${ss.map(s=>`<span class="badge badge-gold">${esc(s.title)}${s.years?` <span style="opacity:.6;font-size:10px">(${s.years})</span>`:''}</span>`).join('')}</div>
             </td></tr>`).join('')}
@@ -1556,16 +1597,187 @@ function dashboard(el, actions) {
 
         <div class="card">
           <div class="card-title">🎭 Séries par statut</div>
-          <table class="data-table"><thead><tr><th>Statut</th><th>Séries</th></tr></thead><tbody>
-            <tr><td><span class="badge badge-green">En cours</span></td><td>${seriesByStatus.encours||0}</td></tr>
-            <tr><td><span class="badge badge-blue">Terminée</span></td><td>${seriesByStatus.terminee||0}</td></tr>
-            <tr><td><span class="badge badge-red">Annulée</span></td><td>${seriesByStatus.annulee||0}</td></tr>
-          </tbody></table>
+          ${renderStatusPie(seriesByStatus)}
         </div>
       </div>
     </div>
   </div>`;
 }
+
+// ── Chart helpers ─────────────────────────────────────────────
+
+function buildMonthlyWatchData() {
+  const log = DB.watchLog || [];
+  if(!log.length) return {hasData:false};
+  // Build per-month totals, keyed "YYYY-MM"
+  const allMonths = {}, filmMonths = {}, serieMonths = {};
+  log.forEach(e => {
+    const d = new Date(e.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    allMonths[key] = (allMonths[key]||0) + 1;
+    if(e.type==='film') filmMonths[key] = (filmMonths[key]||0) + 1;
+    if(e.type==='episode') serieMonths[key] = (serieMonths[key]||0) + 1;
+  });
+  // Generate sorted list of all months in range
+  const keys = Object.keys(allMonths).sort();
+  if(!keys.length) return {hasData:false};
+  const [minY, minM] = keys[0].split('-').map(Number);
+  const [maxY, maxM] = keys[keys.length-1].split('-').map(Number);
+  const labels = [], allVals = [], filmVals = [], serieVals = [];
+  let y=minY, m=minM;
+  while(y < maxY || (y===maxY && m<=maxM)) {
+    const key = `${y}-${String(m).padStart(2,'0')}`;
+    labels.push(MONTH_NAMES_FR[m-1].slice(0,3)+' '+String(y).slice(2));
+    allVals.push(allMonths[key]||0);
+    filmVals.push(filmMonths[key]||0);
+    serieVals.push(serieMonths[key]||0);
+    m++; if(m>12){m=1;y++;}
+  }
+  return {hasData:true, labels, allVals, filmVals, serieVals};
+}
+
+function renderMonthlyChart(data, mode) {
+  if(!data.hasData) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Pas encore de données de visionnage.</div>';
+  const vals = mode==='films' ? data.filmVals : mode==='series' ? data.serieVals : data.allVals;
+  const maxVal = Math.max(...vals, 1);
+  const W = 320, H = 120, padL = 24, padB = 20, padR = 8, padT = 10;
+  const chartW = W - padL - padR;
+  const chartH = H - padB - padT;
+  const n = vals.length;
+  const step = n > 1 ? chartW / (n-1) : chartW;
+  const color = mode==='films' ? 'var(--gold)' : mode==='series' ? '#4a9eff' : 'var(--gold)';
+
+  // Build polyline points
+  const points = vals.map((v,i) => {
+    const x = padL + (n>1 ? i*step : chartW/2);
+    const y = padT + chartH - (v/maxVal)*chartH;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+
+  // Y axis labels (0 and max)
+  const yLabels = `
+    <text x="${padL-3}" y="${padT+6}" text-anchor="end" font-size="9" fill="var(--text-dim)">${maxVal}</text>
+    <text x="${padL-3}" y="${padT+chartH+4}" text-anchor="end" font-size="9" fill="var(--text-dim)">0</text>`;
+
+  // X axis labels — show every Nth label to avoid overlap
+  const every = n <= 12 ? 1 : n <= 24 ? 2 : n <= 48 ? 4 : 6;
+  const xLabels = vals.map((_,i) => {
+    if(i % every !== 0) return '';
+    const x = padL + (n>1 ? i*step : chartW/2);
+    return `<text x="${x.toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="8" fill="var(--text-dim)">${data.labels[i]}</text>`;
+  }).join('');
+
+  // Dots on data points
+  const dots = vals.map((v,i) => {
+    if(v===0) return '';
+    const x = padL + (n>1 ? i*step : chartW/2);
+    const y = padT + chartH - (v/maxVal)*chartH;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}" stroke="var(--bg)" stroke-width="1.5">
+      <title>${data.labels[i]} : ${v}</title></circle>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${padL}" y1="${padT+chartH}" x2="${W-padR}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
+    ${yLabels}${xLabels}
+    <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+  </svg>`;
+}
+
+function renderYearChart(mode, filmsByDecade, filmsByYear) {
+  const raw = mode==='decade'
+    ? Object.entries(filmsByDecade).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([d,n])=>[d+'s',n])
+    : Object.entries(filmsByYear).filter(([y])=>y!=='?').sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([y,n])=>[y,n]);
+  if(!raw.length) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucune donnée.</div>';
+  const maxVal = Math.max(...raw.map(([,n])=>n), 1);
+  const W = 320, H = 140, padL = 24, padB = 22, padR = 8, padT = 10;
+  const chartW = W - padL - padR;
+  const chartH = H - padB - padT;
+  const n = raw.length;
+  const barW = Math.max(2, Math.min(24, chartW/n - 2));
+  const step = chartW / n;
+
+  const bars = raw.map(([label, val], i) => {
+    const x = padL + i*step + (step-barW)/2;
+    const bh = (val/maxVal)*chartH;
+    const y = padT + chartH - bh;
+    const every = n <= 15 ? 1 : n <= 30 ? 2 : n <= 60 ? 5 : 10;
+    const showLabel = i % every === 0;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${bh.toFixed(1)}" fill="var(--gold)" rx="2" opacity="0.85">
+        <title>${label} : ${val} film${val>1?'s':''}</title></rect>
+      ${showLabel?`<text x="${(x+barW/2).toFixed(1)}" y="${H-5}" text-anchor="middle" font-size="${n>30?7:8}" fill="var(--text-dim)" transform="rotate(-45 ${(x+barW/2).toFixed(1)} ${H-5})">${label}</text>`:''}`;
+  }).join('');
+
+  const yLabels = `
+    <text x="${padL-3}" y="${padT+6}" text-anchor="end" font-size="9" fill="var(--text-dim)">${maxVal}</text>
+    <text x="${padL-3}" y="${padT+chartH+4}" text-anchor="end" font-size="9" fill="var(--text-dim)">0</text>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${padL}" y1="${padT+chartH}" x2="${W-padR}" y2="${padT+chartH}" stroke="var(--border)" stroke-width="1"/>
+    ${yLabels}${bars}
+  </svg>`;
+}
+
+function renderStatusPie(seriesByStatus) {
+  const data = [
+    {label:'En cours', val:seriesByStatus.encours||0, color:'#4ade80'},
+    {label:'Terminée', val:seriesByStatus.terminee||0, color:'#4a9eff'},
+    {label:'Annulée',  val:seriesByStatus.annulee||0,  color:'#f87171'},
+  ].filter(d=>d.val>0);
+  const total = data.reduce((a,d)=>a+d.val,0);
+  if(!total) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucune série.</div>';
+
+  const cx=60, cy=60, r=50;
+  let angle = -Math.PI/2;
+  const slices = data.map(d => {
+    const a = (d.val/total)*Math.PI*2;
+    const x1 = cx + r*Math.cos(angle), y1 = cy + r*Math.sin(angle);
+    angle += a;
+    const x2 = cx + r*Math.cos(angle), y2 = cy + r*Math.sin(angle);
+    const large = a > Math.PI ? 1 : 0;
+    return `<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r},0,${large},1,${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${d.color}"><title>${d.label} : ${d.val}</title></path>`;
+  }).join('');
+
+  const legend = data.map((d,i) => `
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+      <div style="width:10px;height:10px;border-radius:2px;background:${d.color};flex-shrink:0"></div>
+      <span>${d.label}</span><span style="color:var(--text-dim);margin-left:auto">${d.val} (${Math.round(d.val/total*100)}%)</span>
+    </div>`).join('');
+
+  return `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <svg viewBox="0 0 120 120" style="width:100px;height:100px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">${slices}</svg>
+    <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:120px">${legend}</div>
+  </div>`;
+}
+
+// Toggle handlers for charts
+window.setYearChartMode = function(mode) {
+  const container = document.getElementById('year-chart-container');
+  if(!container) return;
+  const filmsByDecade={}, filmsByYear={};
+  DB.films.forEach(f=>{ const d=decadeOf(f.year); if(d!==null) filmsByDecade[d]=(filmsByDecade[d]||0)+1; });
+  DB.films.forEach(f=>{ if(f.year) filmsByYear[f.year]=(filmsByYear[f.year]||0)+1; });
+  container.innerHTML = renderYearChart(mode, filmsByDecade, filmsByYear);
+  document.getElementById('chart-decade-btn').style.cssText = mode==='decade'?'background:var(--gold);color:#000;border:none':'';
+  document.getElementById('chart-decade-btn').className = mode==='decade'?'btn btn-xs':'btn btn-xs btn-secondary';
+  document.getElementById('chart-year-btn').style.cssText = mode==='year'?'background:var(--gold);color:#000;border:none':'';
+  document.getElementById('chart-year-btn').className = mode==='year'?'btn btn-xs':'btn btn-xs btn-secondary';
+};
+
+window.setMonthlyMode = function(mode) {
+  const container = document.getElementById('monthly-chart-container');
+  if(!container) return;
+  const data = buildMonthlyWatchData();
+  container.innerHTML = renderMonthlyChart(data, mode);
+  ['all','films','series'].forEach(m => {
+    const btn = document.getElementById('monthly-'+m+'-btn');
+    if(!btn) return;
+    btn.style.cssText = m===mode?'background:var(--gold);color:#000;border:none':'';
+    btn.className = m===mode?'btn btn-xs':'btn btn-xs btn-secondary';
+  });
+};
 
 function toggleMore(id, btn) {
   const el = document.getElementById('more-'+id);
@@ -1769,7 +1981,7 @@ function filmRow(f) {
       <div class="media-poster-thumb">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
       <div class="media-info">
         <div class="media-title">${esc(f.title)}${sagaBadge}</div>
-        <div class="media-meta">${esc(dirs)} • ${esc(f.year||'?')} • ${f.duration?f.duration+' min':'–'}</div>
+        <div class="media-meta">${parseNames(f.directors).map(d=>`<span style="cursor:pointer;color:var(--gold);text-decoration:underline" onclick="event.stopPropagation();openFilmography('${encodeURIComponent(d)}')">${esc(d)}</span>`).join(', ')||'–'} • ${esc(f.year||'?')} • ${f.duration?f.duration+' min':'–'}</div>
       </div>
       <div class="media-actions" onclick="event.stopPropagation()">
         <button class="btn btn-secondary btn-xs" onclick="openFilmForm('${f.id}')">✏️</button>
