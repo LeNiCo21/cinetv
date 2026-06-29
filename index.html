@@ -1446,12 +1446,28 @@ function dashboard(el, actions) {
       + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
       + '<div class="card-title" style="margin-bottom:0">📈 Visionnage mensuel</div>'
       + '<div style="display:flex;gap:4px">'
-      + '<button class="btn btn-xs" id="monthly-all-btn" onclick="setMonthlyMode(\'all\')" style="background:var(--gold);color:#000;border:none">Tout</button>'
-      + '<button class="btn btn-xs btn-secondary" id="monthly-films-btn" onclick="setMonthlyMode(\'films\')">Films</button>'
-      + '<button class="btn btn-xs btn-secondary" id="monthly-series-btn" onclick="setMonthlyMode(\'series\')">Séries</button>'
-      + '</div></div>'
+      + '<div style="display:flex;gap:4px">'
+      + '<button class="btn btn-xs" id="monthly-all-btn" data-mode="all" onclick="setMonthlyMode(this.dataset.mode)" style="background:var(--gold);color:#000;border:none">Tout</button>'
+      + '<button class="btn btn-xs btn-secondary" id="monthly-films-btn" data-mode="films" onclick="setMonthlyMode(this.dataset.mode)">Films</button>'
+      + '<button class="btn btn-xs btn-secondary" id="monthly-series-btn" data-mode="series" onclick="setMonthlyMode(this.dataset.mode)">Séries</button>'
       + '<div id="monthly-chart-container">'+renderMonthlyChart(monthData, 'all')+'</div>'
       + '</div>';
+  })();
+
+  const sagasBlockHTML = (()=>{
+    const sagas = DB.sagas||[];
+    const dilogies = sagas.filter(sg=>sagaFilmCount(sg)===2);
+    const trilogies = sagas.filter(sg=>sagaFilmCount(sg)===3);
+    const sagasPlus = sagas.filter(sg=>sagaFilmCount(sg)>=4);
+    if(!sagas.length) return '';
+    return '<div class="card">'
+      + '<div class="card-title">🎞️ Sagas</div>'
+      + '<table class="data-table"><thead><tr><th>Type</th><th>Nombre</th></tr></thead><tbody>'
+      + (dilogies.length?'<tr><td>Dilogies</td><td>'+dilogies.length+'</td></tr>':'')
+      + (trilogies.length?'<tr><td>Trilogies</td><td>'+trilogies.length+'</td></tr>':'')
+      + (sagasPlus.length?'<tr><td>Sagas (4+ films)</td><td>'+sagasPlus.length+'</td></tr>':'')
+      + '<tr style="font-weight:600"><td>Total</td><td>'+sagas.length+'</td></tr>'
+      + '</tbody></table></div>';
   })();
 
   el.innerHTML = `
@@ -1471,22 +1487,7 @@ function dashboard(el, actions) {
           <div class="stat-card"><div class="stat-val" style="font-size:18px">${fmtDuration(totalFilmMin)}</div><div class="stat-label">Durée totale</div></div>
         </div>
 
-        ${(()=>{
-          const sagas = DB.sagas||[];
-          const dilogies = sagas.filter(sg=>sagaFilmCount(sg)===2);
-          const trilogies = sagas.filter(sg=>sagaFilmCount(sg)===3);
-          const sagasPlus = sagas.filter(sg=>sagaFilmCount(sg)>=4);
-          if(!sagas.length) return '';
-          return `<div class="card">
-            <div class="card-title">🎞️ Sagas</div>
-            <table class="data-table"><thead><tr><th>Type</th><th>Nombre</th></tr></thead><tbody>
-              ${dilogies.length?`<tr><td>Dilogies</td><td>${dilogies.length}</td></tr>`:''}
-              ${trilogies.length?`<tr><td>Trilogies</td><td>${trilogies.length}</td></tr>`:''}
-              ${sagasPlus.length?`<tr><td>Sagas (4+ films)</td><td>${sagasPlus.length}</td></tr>`:''}
-              <tr style="font-weight:600"><td>Total</td><td>${sagas.length}</td></tr>
-            </tbody></table>
-          </div>`;
-        })()}
+        ${sagasBlockHTML}
 
         <div class="card">
           <div class="card-title">🏆 Top 20 — Films les plus longs</div>
