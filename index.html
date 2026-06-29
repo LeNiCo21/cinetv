@@ -1460,6 +1460,41 @@ function renderStatusPie(seriesByStatus) {
   </div>`;
 }
 
+function sagasPieHTML(dilogies, trilogies, sagasPlus) {
+  const data = [
+    {label:'Dilogies (2)',  val:dilogies,  color:'#E8C46A'},
+    {label:'Trilogies (3)', val:trilogies, color:'#4a9eff'},
+    {label:'Sagas (4+)',    val:sagasPlus, color:'#ff3d9a'},
+  ].filter(d=>d.val>0);
+  const total = data.reduce((a,d)=>a+d.val,0);
+  if(!total) return '';
+
+  const cx=60, cy=60, r=50;
+  let angle = -Math.PI/2;
+  const slices = data.map(d => {
+    const a = (d.val/total)*Math.PI*2;
+    const x1 = cx + r*Math.cos(angle), y1 = cy + r*Math.sin(angle);
+    angle += a;
+    const x2 = cx + r*Math.cos(angle), y2 = cy + r*Math.sin(angle);
+    const large = a > Math.PI ? 1 : 0;
+    return '<path d="M'+cx+','+cy+' L'+x1.toFixed(2)+','+y1.toFixed(2)+' A'+r+','+r+',0,'+large+',1,'+x2.toFixed(2)+','+y2.toFixed(2)+' Z" fill="'+d.color+'"><title>'+d.label+' : '+d.val+'</title></path>';
+  }).join('');
+
+  const legend = data.map(d =>
+    '<div style="display:flex;align-items:center;gap:6px;font-size:12px">'
+    + '<div style="width:10px;height:10px;border-radius:2px;background:'+d.color+';flex-shrink:0"></div>'
+    + '<span>'+d.label+'</span><span style="color:var(--text-dim);margin-left:auto">'+d.val+' ('+Math.round(d.val/total*100)+'%)</span>'
+    + '</div>'
+  ).join('');
+
+  return '<div class="card"><div class="card-title">🎞️ Sagas</div>'
+    + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
+    + '<svg viewBox="0 0 120 120" style="width:90px;height:90px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">'+slices+'</svg>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">'+legend
+    + '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;border-top:1px solid var(--border);padding-top:6px">Total : <b style="color:var(--text)">'+total+'</b></div>'
+    + '</div></div></div>';
+}
+
 // Toggle handlers for charts
 window.setYearChartMode = function(mode) {
   const container = document.getElementById('year-chart-container');
@@ -1567,6 +1602,8 @@ function dashboard(el, actions) {
   const sgT = makeCollapsibleTable(serieGenreRows, 10, 'sg');
   const platformRows = Object.entries(seriesByPlatform).sort((a,b)=>b[1]-a[1]).map(([p,n])=>`<td>${esc(p)}</td><td>${n}</td>`);
   const plT = makeCollapsibleTable(platformRows, 10, 'pl');
+  const serieGenreSorted = Object.entries(seriesByGenre).sort((a,b)=>b[1]-a[1]);
+  const serieCountrySorted = Object.entries(seriesByCountry).sort((a,b)=>b[1]-a[1]);
   const decadeRows = decadesSorted.map(([d,n])=>`<td>${d}s</td><td>${n}</td>`);
   const decT = makeCollapsibleTable(decadeRows, 5, 'dec');
   const yearRows = yearsSorted.map(([y,n])=>`<td>${esc(y)}</td><td>${n}</td>`);
@@ -1622,53 +1659,53 @@ function dashboard(el, actions) {
           <div class="stat-card"><div class="stat-val" style="font-size:18px">${fmtDuration(totalFilmMin)}</div><div class="stat-label">Durée totale</div></div>
         </div>
 
-        ${(()=>{
-          const sagas = DB.sagas||[];
-          const dilogies = sagas.filter(sg=>sagaFilmCount(sg)===2);
-          const trilogies = sagas.filter(sg=>sagaFilmCount(sg)===3);
-          const sagasPlus = sagas.filter(sg=>sagaFilmCount(sg)>=4);
-          if(!sagas.length) return '';
-          return `<div class="card">
-            <div class="card-title">🎞️ Sagas</div>
-            <table class="data-table"><thead><tr><th>Type</th><th>Nombre</th></tr></thead><tbody>
-              ${dilogies.length?`<tr><td>Dilogies</td><td>${dilogies.length}</td></tr>`:''}
-              ${trilogies.length?`<tr><td>Trilogies</td><td>${trilogies.length}</td></tr>`:''}
-              ${sagasPlus.length?`<tr><td>Sagas (4+ films)</td><td>${sagasPlus.length}</td></tr>`:''}
-              <tr style="font-weight:600"><td>Total</td><td>${sagas.length}</td></tr>
-            </tbody></table>
-          </div>`;
-        })()}
+        ${(()=>{ return ''; })()}
 
         <div class="card">
           <div class="card-title">🏆 Top 20 — Films les plus longs</div>
           <table class="data-table"><thead><tr><th>#</th><th>Titre</th><th>Durée</th></tr></thead><tbody>
-          ${top20films.map((f,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(f.title)}</td><td>${fmtH(parseInt(f.duration)||0)}</td></tr>`).join('')}
-          </tbody></table>
+          ${top20films.slice(0,10).map((f,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(f.title)}</td><td>${fmtH(parseInt(f.duration)||0)}</td></tr>`).join('')}
+          </tbody>${top20films.length>10?`<tbody id="more-top20" style="display:none">${top20films.slice(10).map((f,i)=>`<tr><td class="rank">${i+11}</td><td>${esc(f.title)}</td><td>${fmtH(parseInt(f.duration)||0)}</td></tr>`).join('')}</tbody>`:''}</table>
+          ${top20films.length>10?`<div class="show-more-btn" onclick="toggleMore('top20',this)">▼ Voir tout (${top20films.length})</div>`:''}
         </div>
 
         <div class="card">
           <div class="card-title">🎥 Réalisateurs les plus vus</div>
           <table class="data-table"><thead><tr><th>Réalisateur</th><th>Films</th><th></th></tr></thead><tbody>
-          ${dirsSorted.map(([d,fs],i)=>`
+          ${dirsSorted.slice(0,10).map(([d,fs],i)=>`
             <tr style="cursor:pointer" onclick="toggleDir(${i})"><td>${esc(d)}</td><td>${fs.length}</td><td><span class="expand-icon" data-dir="${i}">▶</span></td></tr>
             <tr id="dir-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
               <div style="display:flex;flex-wrap:wrap;gap:6px">${fs.map(f=>`<span class="badge badge-gold">${esc(f.title)}${f.year?` <span style="opacity:.6;font-size:10px">(${f.year})</span>`:''}</span>`).join('')}</div>
             </td></tr>`).join('')}
-          </tbody></table>
+          </tbody>${dirsSorted.length>10?`<tbody id="more-dirs" style="display:none">${dirsSorted.slice(10).map(([d,fs],i)=>`
+            <tr style="cursor:pointer" onclick="toggleDir(${i+10})"><td>${esc(d)}</td><td>${fs.length}</td><td><span class="expand-icon" data-dir="${i+10}">▶</span></td></tr>
+            <tr id="dir-exp-${i+10}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
+              <div style="display:flex;flex-wrap:wrap;gap:6px">${fs.map(f=>`<span class="badge badge-gold">${esc(f.title)}${f.year?` <span style="opacity:.6;font-size:10px">(${f.year})</span>`:''}</span>`).join('')}</div>
+            </td></tr>`).join('')}</tbody>`:''}</table>
+          ${dirsSorted.length>10?`<div class="show-more-btn" onclick="toggleMore('dirs',this)">▼ Voir tout (${dirsSorted.length})</div>`:''}
         </div>
+
+        ${(()=>{
+          const sagas = DB.sagas||[];
+          if(!sagas.length) return '';
+          const dilogies = sagas.filter(sg=>sagaFilmCount(sg)===2).length;
+          const trilogies = sagas.filter(sg=>sagaFilmCount(sg)===3).length;
+          const sagasPlus = sagas.filter(sg=>sagaFilmCount(sg)>=4).length;
+          return sagasPieHTML(dilogies, trilogies, sagasPlus);
+        })()}
 
         <div class="card">
           <div class="card-title">🎭 Films par genre</div>
           <table class="data-table"><thead><tr><th>Genre</th><th>Films</th></tr></thead>
-          <tbody>${fgT.html}</tbody></table>
-          ${fgT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${fgT.id}',this)">▼ Voir tout (${genresFilmSorted.length})</div>`:fgT.html?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
+          <tbody>${genresFilmSorted.slice(0,10).map(([g,n])=>`<tr style="cursor:pointer" onclick="openByFilter('genre','film','${encodeURIComponent(g)}')"><td style="color:var(--gold)">${esc(g)}</td><td>${n}</td></tr>`).join('')}${genresFilmSorted.length>10?`<tbody id="more-fg" style="display:none">${genresFilmSorted.slice(10).map(([g,n])=>`<tr style="cursor:pointer" onclick="openByFilter('genre','film','${encodeURIComponent(g)}')"><td style="color:var(--gold)">${esc(g)}</td><td>${n}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
+          ${genresFilmSorted.length>10?`<div class="show-more-btn" onclick="toggleMore('fg',this)">▼ Voir tout (${genresFilmSorted.length})</div>`:genresFilmSorted.length?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
         </div>
 
         <div class="card">
           <div class="card-title">🌍 Films par pays</div>
           <table class="data-table"><thead><tr><th>Pays</th><th>Films</th></tr></thead>
-          <tbody>${fcT.html}</tbody></table>
-          ${fcT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${fcT.id}',this)">▼ Voir tout (${countriesFilmSorted.length})</div>`:''}
+          <tbody>${countriesFilmSorted.slice(0,10).map(([c,n])=>`<tr style="cursor:pointer" onclick="openByFilter('country','film','${encodeURIComponent(c)}')"><td style="color:var(--gold)">${esc(c)}</td><td>${n}</td></tr>`).join('')}${countriesFilmSorted.length>10?`<tbody id="more-fc" style="display:none">${countriesFilmSorted.slice(10).map(([c,n])=>`<tr style="cursor:pointer" onclick="openByFilter('country','film','${encodeURIComponent(c)}')"><td style="color:var(--gold)">${esc(c)}</td><td>${n}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
+          ${countriesFilmSorted.length>10?`<div class="show-more-btn" onclick="toggleMore('fc',this)">▼ Voir tout (${countriesFilmSorted.length})</div>`:''}
         </div>
 
         ${yearChartBlockHTML}
@@ -1711,7 +1748,7 @@ function dashboard(el, actions) {
         <div class="card">
           <div class="card-title">🎬 Créateurs les plus suivis</div>
           ${creatorsSorted.length ? `<table class="data-table"><thead><tr><th>Créateur</th><th>Séries</th><th></th></tr></thead><tbody>
-          ${creatorsSorted.map(([c,ss],i)=>`
+          ${creatorsSorted.slice(0,10).map(([c,ss],i)=>`
             <tr style="cursor:pointer" onclick="toggleCreator(${i})"><td>${esc(c)}</td><td>${ss.length}</td><td><span class="expand-icon" data-creator="${i}">▶</span></td></tr>
             <tr id="creator-exp-${i}" style="display:none"><td colspan="3" style="padding:6px 16px 10px">
               <div style="display:flex;flex-wrap:wrap;gap:6px">${ss.map(s=>`<span class="badge badge-gold">${esc(s.title)}${s.years?` <span style="opacity:.6;font-size:10px">(${s.years})</span>`:''}</span>`).join('')}</div>
@@ -1722,15 +1759,15 @@ function dashboard(el, actions) {
         <div class="card">
           <div class="card-title">🎭 Séries par genre</div>
           <table class="data-table"><thead><tr><th>Genre</th><th>Séries</th></tr></thead>
-          <tbody>${sgT.html}</tbody></table>
-          ${sgT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${sgT.id}',this)">▼ Voir tout (${serieGenreRows.length})</div>`:sgT.html?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
+          <tbody>${serieGenreSorted.slice(0,10).map(([g,n])=>`<tr style="cursor:pointer" onclick="openByFilter('genre','serie','${encodeURIComponent(g)}')"><td style="color:var(--gold)">${esc(g)}</td><td>${n}</td></tr>`).join('')}${serieGenreSorted.length>10?`<tbody id="more-sg" style="display:none">${serieGenreSorted.slice(10).map(([g,n])=>`<tr style="cursor:pointer" onclick="openByFilter('genre','serie','${encodeURIComponent(g)}')"><td style="color:var(--gold)">${esc(g)}</td><td>${n}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
+          ${serieGenreSorted.length>10?`<div class="show-more-btn" onclick="toggleMore('sg',this)">▼ Voir tout (${serieGenreSorted.length})</div>`:serieGenreSorted.length?'':'<div style="font-size:12px;color:var(--text-dim);padding:8px 0">Aucun genre renseigné pour le moment.</div>'}
         </div>
 
         <div class="card">
           <div class="card-title">🌍 Séries par pays</div>
           <table class="data-table"><thead><tr><th>Pays</th><th>Séries</th></tr></thead>
-          <tbody>${scT.html}</tbody></table>
-          ${scT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${scT.id}',this)">▼ Voir tout (${serieCountryRows.length})</div>`:''}
+          <tbody>${serieCountrySorted.slice(0,10).map(([c,n])=>`<tr style="cursor:pointer" onclick="openByFilter('country','serie','${encodeURIComponent(c)}')"><td style="color:var(--gold)">${esc(c)}</td><td>${n}</td></tr>`).join('')}${serieCountrySorted.length>10?`<tbody id="more-sc" style="display:none">${serieCountrySorted.slice(10).map(([c,n])=>`<tr style="cursor:pointer" onclick="openByFilter('country','serie','${encodeURIComponent(c)}')"><td style="color:var(--gold)">${esc(c)}</td><td>${n}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
+          ${serieCountrySorted.length>10?`<div class="show-more-btn" onclick="toggleMore('sc',this)">▼ Voir tout (${serieCountrySorted.length})</div>`:''}
         </div>
 
         <div class="card">
@@ -1793,6 +1830,52 @@ function toggleCreator(i) {
   const row = document.getElementById('creator-exp-'+i);
   const icon = document.querySelector(`[data-creator="${i}"]`);
   if(row) { const open=row.style.display!=='none'; row.style.display=open?'none':''; icon.textContent=open?'▶':'▼'; }
+}
+
+function openByFilter(type, kind, encodedValue) {
+  const value = decodeURIComponent(encodedValue);
+  const label = type === 'genre' ? '🎭' : '🌍';
+  let items;
+  if(kind === 'film') {
+    items = DB.films.filter(f => parseNames(f[type==='genre'?'genres':'countries']).includes(value))
+      .sort((a,b)=>(a.title||'').localeCompare(b.title||'','fr'));
+  } else {
+    items = DB.series.filter(s => parseNames(s[type==='genre'?'genres':'countries']).includes(value))
+      .sort((a,b)=>(a.title||'').localeCompare(b.title||'','fr'));
+  }
+  const isFilm = kind === 'film';
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" id="modal-overlay" onclick="if(event.target.id==='modal-overlay')closeModal()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div class="modal-title">${label} ${esc(value)} <span style="font-size:13px;color:var(--text-dim);font-weight:400">(${items.length} ${isFilm?'film':'série'}${items.length>1?'s':''})</span></div>
+        <button class="close-btn" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        ${items.length === 0 ? '<div style="color:var(--text-dim)">Aucun résultat.</div>' : `
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${items.map(item => isFilm ? `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-radius:6px;cursor:pointer;transition:background .15s" onclick="closeModal();navigateToFilm('${item.id}')" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background=''">
+              <div style="min-width:0;flex:1">
+                <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</div>
+                <div style="font-size:12px;color:var(--text-dim)">${esc(joinNames(parseNames(item.directors)))||'–'}${item.year?' · '+item.year:''}</div>
+              </div>
+              <div style="font-size:14px;color:var(--text-dim);flex-shrink:0;margin-left:8px">↗</div>
+            </div>` : `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-radius:6px;cursor:pointer;transition:background .15s" onclick="closeModal();openSerieDetailModal('${item.id}')" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background=''">
+              <div style="min-width:0;flex:1">
+                <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</div>
+                <div style="font-size:12px;color:var(--text-dim)">${esc(item.years||'?')} · ${statusBadge(item.status)}</div>
+              </div>
+              <div style="font-size:14px;color:var(--text-dim);flex-shrink:0;margin-left:8px">▶</div>
+            </div>`).join('')}
+        </div>`}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 function openFilmsByYear(year) {
