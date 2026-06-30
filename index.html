@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.5.0';
+const APP_VERSION = 'v3.5.1';
 
 function loadDB() {
   try {
@@ -4775,6 +4775,12 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
       <textarea class="form-textarea" id="fm-notes"></textarea>
     </div>
     <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="fm-watched-today" checked>
+        Marquer comme vu aujourd'hui <small style="color:var(--text-dim)">(décochez si vu il y a plus longtemps — ne sera pas compté dans le bilan annuel)</small>
+      </label>
+    </div>
+    <div class="form-group">
       <label class="form-label">Poster</label>
       <div style="display:flex;align-items:center;gap:12px">
         <div id="fm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">
@@ -4789,19 +4795,21 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
     const year = document.getElementById('fm-year').value.trim();
     const duration = document.getElementById('fm-duration').value.trim();
     let valid = true;
-    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; } else document.getElementById('fm-title').classList.remove('invalid');
-    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; } else document.getElementById('fm-dirs-wrap').classList.remove('invalid');
-    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; } else document.getElementById('fm-year').classList.remove('invalid');
-    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; } else document.getElementById('fm-duration').classList.remove('invalid');
-    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; } else document.getElementById('fm-countries-wrap').classList.remove('invalid');
-    if(!valid) return false;
+    const missing = [];
+    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; missing.push('Titre'); } else document.getElementById('fm-title').classList.remove('invalid');
+    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; missing.push('Réalisateur(s)'); } else document.getElementById('fm-dirs-wrap').classList.remove('invalid');
+    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; missing.push('Année'); } else document.getElementById('fm-year').classList.remove('invalid');
+    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; missing.push('Durée'); } else document.getElementById('fm-duration').classList.remove('invalid');
+    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); } else document.getElementById('fm-countries-wrap').classList.remove('invalid');
+    if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const notes = document.getElementById('fm-notes').value.trim();
     const poster = window._capturedPoster!==undefined ? window._capturedPoster : (sf.poster||'');
 
     // Update the saga's record and add the film to the main collection
     sf.title=title; sf.directors=[...dirs]; sf.countries=[...countries]; sf.year=year; sf.duration=parseInt(duration); sf.poster=poster; sf.unseen=false;
     DB.films.push({id:sf.id,title,directors:[...dirs],countries:[...countries],genres:[],year,duration:parseInt(duration),notes,poster});
-    logWatch({type:'film', filmId:sf.id, sagaId});
+    const watchedToday = document.getElementById('fm-watched-today');
+    if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:sf.id, sagaId});
     saveDB(); closeModal();
     if(window._sagasPageDraw) window._sagasPageDraw(); else render('sagas');
   });
