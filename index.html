@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.5.5';
+const APP_VERSION = 'v3.6.0';
 
 function loadDB() {
   try {
@@ -4747,23 +4747,14 @@ function openAddFilmToSaga(sagaId, isNewlyCreatedSaga) {
       <div style="font-size:12px;color:var(--gold);margin-top:8px" id="saga-pick-count">0 film(s) sélectionné(s)</div>`}
     </div>
     <div id="add-new" style="display:none">
-      <div style="color:var(--text-dim);font-size:13px;margin-bottom:14px">Ce film ne sera pas comptabilisé dans les statistiques tant qu'il n'est pas marqué comme vu.</div>
+      <div style="color:var(--text-dim);font-size:13px;margin-bottom:14px">Ces films ne seront pas comptabilisés dans les statistiques tant qu'ils ne sont pas marqués comme vus.</div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer">
         <input type="checkbox" id="nf-enable" onchange="toggleNfEnable(this.checked)">
         Ajouter aussi un film non vu
       </label>
-      <div id="nf-fields" style="display:none">
-        <div class="form-group"><label class="form-label">Titre *</label><input class="form-input" id="nf-title"></div>
-        <div class="form-group"><label class="form-label">Réalisateur(s) <small style="color:var(--text-dim)">(Entrée)</small></label>
-          <div class="tag-input-wrap" id="nf-dirs-wrap" onclick="document.getElementById('nf-dirs-input').focus()"><input class="tag-input" id="nf-dirs-input" placeholder="Ajouter..."></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">Année</label><input class="form-input" id="nf-year" type="number"></div>
-          <div class="form-group"><label class="form-label">Durée (min)</label><input class="form-input" id="nf-duration" type="number"></div>
-        </div>
-        <div class="form-group"><label class="form-label">Pays <small style="color:var(--text-dim)">(Entrée)</small></label>
-          <div class="tag-input-wrap" id="nf-countries-wrap" onclick="document.getElementById('nf-countries-input').focus()"><input class="tag-input" id="nf-countries-input" placeholder="Ajouter..."></div>
-        </div>
+      <div id="nf-blocks-container" style="display:none"></div>
+      <div id="nf-add-more-wrap" style="display:none">
+        <button class="btn btn-secondary btn-sm" onclick="addNfBlock()">＋ Ajouter un autre film</button>
       </div>
     </div>
   `, ()=>{
@@ -4781,12 +4772,19 @@ function openAddFilmToSaga(sagaId, isNewlyCreatedSaga) {
     window._selectedSagaFilmIds=new Set();
 
     if(nfEnabled){
-      const title=document.getElementById('nf-title').value.trim();
-      if(!title){ document.getElementById('nf-title').classList.add('invalid'); switchAddTab('new'); return false; }
-      const year=document.getElementById('nf-year').value.trim();
-      const duration=document.getElementById('nf-duration').value.trim();
-      saga.films.push({id:uid(),title,directors:[...window._nfDirs||[]],countries:[...window._nfCountries||[]],year,duration:parseInt(duration)||0,poster:'',unseen:true});
-      addedAny = true;
+      const blockIds = window._nfBlockIds || [];
+      for(const bid of blockIds){
+        const titleEl = document.getElementById('nf-title-'+bid);
+        if(!titleEl) continue; // block was removed
+        const title = titleEl.value.trim();
+        if(!title){ titleEl.classList.add('invalid'); switchAddTab('new'); return false; }
+        const year = document.getElementById('nf-year-'+bid).value.trim();
+        const duration = document.getElementById('nf-duration-'+bid).value.trim();
+        const dirs = window._nfDirs[bid] || [];
+        const countries = window._nfCountries[bid] || [];
+        saga.films.push({id:uid(),title,directors:[...dirs],countries:[...countries],year,duration:parseInt(duration)||0,poster:'',unseen:true});
+        addedAny = true;
+      }
     }
 
     if(!addedAny){ alert('Sélectionnez au moins un film déjà vu, ou ajoutez un film non vu.'); return false; }
@@ -4798,12 +4796,49 @@ function openAddFilmToSaga(sagaId, isNewlyCreatedSaga) {
   });
 
   window._selectedSagaFilmIds = new Set();
-  window._nfDirs = []; window._nfCountries = [];
-  setupTagInput('nf-dirs-input','nf-dirs-wrap',window._nfDirs);
-  setupTagInput('nf-countries-input','nf-countries-wrap',window._nfCountries);
+  window._nfBlockIds = [];
+  window._nfDirs = {}; window._nfCountries = {};
+  window._nfBlockCounter = 0;
+
+  window.addNfBlock = () => {
+    const bid = 'b' + (window._nfBlockCounter++);
+    window._nfBlockIds.push(bid);
+    window._nfDirs[bid] = [];
+    window._nfCountries[bid] = [];
+    const container = document.getElementById('nf-blocks-container');
+    const isFirst = window._nfBlockIds.length === 1;
+    const blockHTML = `
+      <div id="nf-block-${bid}" style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px;position:relative">
+        ${!isFirst ? `<button class="close-btn" style="position:absolute;top:8px;right:8px;font-size:16px" onclick="removeNfBlock('${bid}')" title="Retirer ce film">✕</button>` : ''}
+        <div class="form-group"><label class="form-label">Titre *</label><input class="form-input" id="nf-title-${bid}"></div>
+        <div class="form-group"><label class="form-label">Réalisateur(s) <small style="color:var(--text-dim)">(Entrée)</small></label>
+          <div class="tag-input-wrap" id="nf-dirs-wrap-${bid}" onclick="document.getElementById('nf-dirs-input-${bid}').focus()"><input class="tag-input" id="nf-dirs-input-${bid}" placeholder="Ajouter..."></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Année</label><input class="form-input" id="nf-year-${bid}" type="number"></div>
+          <div class="form-group"><label class="form-label">Durée (min)</label><input class="form-input" id="nf-duration-${bid}" type="number"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Pays <small style="color:var(--text-dim)">(Entrée)</small></label>
+          <div class="tag-input-wrap" id="nf-countries-wrap-${bid}" onclick="document.getElementById('nf-countries-input-${bid}').focus()"><input class="tag-input" id="nf-countries-input-${bid}" placeholder="Ajouter..."></div>
+        </div>
+      </div>`;
+    container.insertAdjacentHTML('beforeend', blockHTML);
+    setupTagInput('nf-dirs-input-'+bid, 'nf-dirs-wrap-'+bid, window._nfDirs[bid]);
+    setupTagInput('nf-countries-input-'+bid, 'nf-countries-wrap-'+bid, window._nfCountries[bid]);
+  };
+
+  window.removeNfBlock = (bid) => {
+    window._nfBlockIds = window._nfBlockIds.filter(id => id !== bid);
+    delete window._nfDirs[bid];
+    delete window._nfCountries[bid];
+    const el = document.getElementById('nf-block-'+bid);
+    if(el) el.remove();
+  };
 
   window.toggleNfEnable = (checked)=>{
-    document.getElementById('nf-fields').style.display = checked ? 'block' : 'none';
+    document.getElementById('nf-blocks-container').style.display = checked ? 'block' : 'none';
+    document.getElementById('nf-add-more-wrap').style.display = checked ? 'block' : 'none';
+    if(checked && window._nfBlockIds.length === 0) addNfBlock();
   };
   window.switchAddTab = (tab)=>{
     document.getElementById('add-existing').style.display=tab==='existing'?'block':'none';
