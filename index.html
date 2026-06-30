@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.6.1';
+const APP_VERSION = 'v3.6.2';
 
 function loadDB() {
   try {
@@ -1736,7 +1736,10 @@ function dashboard(el, actions) {
 
   let inProgress = allSeries.filter(s=>!s.abandoned).filter(s=>{
     const seen=serieSeenEps(s), total=serieTotalEps(s);
-    return seen>0 && seen<total;
+    if(seen===0 || seen>=total) return false;
+    // Hide from "Continuer le visionnage" if the only remaining episodes
+    // haven't aired yet (findNextEpisode returns null in that case).
+    return findNextEpisode(s) !== null;
   });
   inProgress.sort((a,b)=>{
     if(a.id===_lastInteractedSerieId) return -1;
