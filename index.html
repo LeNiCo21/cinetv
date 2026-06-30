@@ -949,12 +949,36 @@ function buildWrappedData(year) {
   const peakMonthShare = totalMin ? Math.round(byMonth[maxMonth]/totalMin*100) : 0;
 
   // ---- 4) Genres ----
-  const genreCount = {};
-  filmsWatched.forEach(f=>parseNames(f.genres).forEach(g=>{ genreCount[g]=(genreCount[g]||0)+1; }));
-  seriesWatched.forEach(s=>parseNames(s.genres).forEach(g=>{ genreCount[g]=(genreCount[g]||0)+1; }));
+  // Films only
+  const filmGenreCount = {};
+  filmsWatched.forEach(f=>parseNames(f.genres).forEach(g=>{ filmGenreCount[g]=(filmGenreCount[g]||0)+1; }));
+  const filmGenresSorted = Object.entries(filmGenreCount).sort((a,b)=>b[1]-a[1]);
+  const topFilmGenreVal = filmGenresSorted.length ? filmGenresSorted[0][1] : 0;
+  const dominantFilmGenres = filmGenresSorted.filter(([,n])=>n===topFilmGenreVal).map(([g])=>g);
+  const dominantFilmGenre = dominantFilmGenres.join(', ');
+
+  // Series only — weighted by episodes watched this year
+  const serieGenreCount = {};
+  seriesWatched.forEach(s=>{
+    const eps = epBySerie[s.id] ? epBySerie[s.id].length : 1;
+    parseNames(s.genres).forEach(g=>{ serieGenreCount[g]=(serieGenreCount[g]||0)+eps; });
+  });
+  const serieGenresSorted = Object.entries(serieGenreCount).sort((a,b)=>b[1]-a[1]);
+  const topSerieGenreVal = serieGenresSorted.length ? serieGenresSorted[0][1] : 0;
+  const dominantSerieGenres = serieGenresSorted.filter(([,n])=>n===topSerieGenreVal).map(([g])=>g);
+  const dominantSerieGenre = dominantSerieGenres.join(', ');
+
+  // Combined for top5 display
+  const genreCount = {...filmGenreCount};
+  seriesWatched.forEach(s=>{
+    const eps = epBySerie[s.id] ? epBySerie[s.id].length : 1;
+    parseNames(s.genres).forEach(g=>{ genreCount[g]=(genreCount[g]||0)+eps; });
+  });
   const genresSorted = Object.entries(genreCount).sort((a,b)=>b[1]-a[1]);
   const top5Genres = genresSorted.slice(0,5);
-  const dominantGenre = genresSorted.length ? genresSorted[0][0] : null;
+  const topGenreVal = genresSorted.length ? genresSorted[0][1] : 0;
+  const dominantGenres = genresSorted.filter(([,n])=>n===topGenreVal).map(([g])=>g);
+  const dominantGenre = dominantFilmGenre; // films side uses film-only dominant
 
   // ---- 5) Géographie ----
   const countryCount = {};
@@ -1100,7 +1124,7 @@ function buildWrappedData(year) {
     totalMin, filmPct, seriesPct,
     byMonth, maxMonth, minMonth, peakMonthShare,
     // section 4
-    top5Genres, dominantGenre, genresUniqueCount,
+    top5Genres, dominantGenre, dominantSerieGenre, genresUniqueCount,
     // section 5
     top5Countries, dominantCountryPct, countriesUniqueCount, newCountries,
     // section 6
@@ -1604,6 +1628,7 @@ function dashboard(el, actions) {
   const plT = makeCollapsibleTable(platformRows, 10, 'pl');
   const serieGenreSorted = Object.entries(seriesByGenre).sort((a,b)=>b[1]-a[1]);
   const serieCountrySorted = Object.entries(seriesByCountry).sort((a,b)=>b[1]-a[1]);
+  const platformSorted = Object.entries(seriesByPlatform).sort((a,b)=>b[1]-a[1]);
   const decadeRows = decadesSorted.map(([d,n])=>`<td>${d}s</td><td>${n}</td>`);
   const decT = makeCollapsibleTable(decadeRows, 5, 'dec');
   const yearRows = yearsSorted.map(([y,n])=>`<td>${esc(y)}</td><td>${n}</td>`);
@@ -1773,8 +1798,8 @@ function dashboard(el, actions) {
         <div class="card">
           <div class="card-title">📡 Séries par plateforme</div>
           <table class="data-table"><thead><tr><th>Plateforme</th><th>Séries</th></tr></thead>
-          <tbody>${plT.html}</tbody></table>
-          ${plT.hasMore?`<div class="show-more-btn" onclick="toggleMore('${plT.id}',this)">▼ Voir tout (${platformRows.length})</div>`:''}
+          <tbody>${platformSorted.slice(0,10).map(([p,n])=>`<tr style="cursor:pointer" onclick="openByFilter('platform','serie','${encodeURIComponent(p)}')"><td style="color:var(--gold)">${esc(p)}</td><td>${n}</td></tr>`).join('')}${platformSorted.length>10?`<tbody id="more-pl" style="display:none">${platformSorted.slice(10).map(([p,n])=>`<tr style="cursor:pointer" onclick="openByFilter('platform','serie','${encodeURIComponent(p)}')"><td style="color:var(--gold)">${esc(p)}</td><td>${n}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
+          ${platformSorted.length>10?`<div class="show-more-btn" onclick="toggleMore('pl',this)">▼ Voir tout (${platformSorted.length})</div>`:''}
         </div>
 
         <div class="card">
@@ -1834,13 +1859,14 @@ function toggleCreator(i) {
 
 function openByFilter(type, kind, encodedValue) {
   const value = decodeURIComponent(encodedValue);
-  const label = type === 'genre' ? '🎭' : '🌍';
+  const label = type === 'genre' ? '🎭' : type === 'platform' ? '📡' : '🌍';
+  const field = type === 'genre' ? 'genres' : type === 'platform' ? 'platforms' : 'countries';
   let items;
   if(kind === 'film') {
-    items = DB.films.filter(f => parseNames(f[type==='genre'?'genres':'countries']).includes(value))
+    items = DB.films.filter(f => parseNames(f[field]).includes(value))
       .sort((a,b)=>(a.title||'').localeCompare(b.title||'','fr'));
   } else {
-    items = DB.series.filter(s => parseNames(s[type==='genre'?'genres':'countries']).includes(value))
+    items = DB.series.filter(s => parseNames(s[field]).includes(value))
       .sort((a,b)=>(a.title||'').localeCompare(b.title||'','fr'));
   }
   const isFilm = kind === 'film';
@@ -3655,6 +3681,14 @@ function buildWrappedSlides(d, narrative) {
         <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">La plus regardée (durée)</div>
         <div style="font-size:16px;font-weight:600">${esc(d.mostWatchedSerieByMin.title)}</div>
         <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${fmtDuration(d.mostWatchedSerieByMinVal)}</div>
+      </div>`;
+    }
+
+    // Genre dominant séries
+    if(d.dominantSerieGenre) {
+      seriesHTML += `<div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold-dim);border-radius:6px;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Genre dominant</div>
+        <div style="font-size:16px;font-weight:600">${esc(d.dominantSerieGenre)}</div>
       </div>`;
     }
 
