@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.5.3';
+const APP_VERSION = 'v3.5.4';
 
 function loadDB() {
   try {
@@ -1788,7 +1788,7 @@ function dashboard(el, actions) {
         <div class="continue-ep">${esc(epLabel)}</div>
         <div style="margin-top:6px">
           <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
-          <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}%</div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% <span style="opacity:.7">(${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})</span></div>
         </div>
       </div>
       ${nextEp?`<button class="btn btn-primary btn-sm" onclick="dashMarkEpSeen('${s.id}',${nextEp.si},${nextEp.ei})">✓ Vu</button>`:''}
@@ -2606,7 +2606,7 @@ function serieDetailBodyHTML(s) {
         <div style="margin-top:4px">${statusBadge(s.status)}</div>
         <div style="margin-top:10px">
           <div class="progress-bar"><div class="progress-fill ${pct===100?'green':'gold'}" style="width:${pct}%"></div></div>
-          <div style="font-size:12px;color:var(--text-dim);margin-top:3px">${seen}/${total} épisodes — ${pct}% • ${fmtDuration(serieSeenMin(s))} vues</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:3px">${seen}/${total} épisodes — ${pct}% <span style="opacity:.7">(${total-seen} restant${(total-seen)>1?'s':''})</span> • ${fmtDuration(serieSeenMin(s))} vues</div>
         </div>
       </div>
     </div>
