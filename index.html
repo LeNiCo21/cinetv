@@ -154,17 +154,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .tab-btn{padding:8px 18px;border-radius:6px;border:none;cursor:pointer;font-family:var(--font-ui);font-size:13px;font-weight:500;background:transparent;color:var(--text-dim);transition:all .15s;}
 .tab-btn.active{background:var(--surface);color:var(--gold);}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);width:100%;max-width:620px;max-height:90vh;overflow-y:auto;}
-.modal-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);width:100%;max-width:620px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
+.modal-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 .modal-title{font-family:var(--font-display);font-size:18px;color:var(--gold);}
-.modal-body{padding:20px 24px;}
-.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;}
+.modal-body{padding:20px 24px;overflow-y:auto;flex:1;min-height:0;}
+.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;}
 .close-btn{background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer;}
 .form-group{margin-bottom:16px;}
 .form-label{display:block;font-size:12px;font-weight:500;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px;}
 .form-input,.form-select,.form-textarea{width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--font-ui);font-size:14px;transition:border-color .15s;}
 .form-input:focus,.form-select:focus,.form-textarea:focus{outline:none;border-color:var(--gold);}
 .form-input.invalid{border-color:var(--red);}
+.form-select.invalid{border-color:var(--red);}
 .form-select option{background:var(--surface2);}
 .form-textarea{resize:vertical;min-height:80px;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
@@ -300,7 +301,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.4.4';
+const APP_VERSION = 'v3.4.5';
 
 function loadDB() {
   try {
@@ -2345,17 +2346,18 @@ function openFilmForm(id) {
     const year = document.getElementById('fm-year').value.trim();
     const duration = document.getElementById('fm-duration').value.trim();
     let valid = true;
-    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; }
+    const missing = [];
+    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; missing.push('Titre'); }
     else document.getElementById('fm-title').classList.remove('invalid');
-    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; }
+    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; missing.push('Réalisateur(s)'); }
     else document.getElementById('fm-dirs-wrap').classList.remove('invalid');
-    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; }
+    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; missing.push('Année'); }
     else document.getElementById('fm-year').classList.remove('invalid');
-    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; }
+    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; missing.push('Durée'); }
     else document.getElementById('fm-duration').classList.remove('invalid');
-    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; }
+    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); }
     else document.getElementById('fm-countries-wrap').classList.remove('invalid');
-    if(!valid){ return false; }
+    if(!valid){ alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const notes = document.getElementById('fm-notes').value.trim();
     const poster = window._capturedPoster!==undefined ? window._capturedPoster : (film?.poster||'');
     const sagaSelect = document.getElementById('fm-saga-select');
@@ -2868,7 +2870,7 @@ function toggleSeasonEps(sid,si) {
       _openSeasons.add(key);
       if(header) setTimeout(()=>{
         // Target the .modal directly — it's the scroll container on all layouts
-        const scrollEl = header.closest('.modal');
+        const scrollEl = header.closest('.modal-body') || header.closest('.modal');
         if(scrollEl) {
           const scrollElRect = scrollEl.getBoundingClientRect();
           const headerRect = header.getBoundingClientRect();
@@ -3190,16 +3192,17 @@ function openSerieForm(id) {
     const status=document.getElementById('sm-status').value;
     const epDur=document.getElementById('sm-dur').value.trim();
     let valid=true;
-    if(!title){ document.getElementById('sm-title').classList.add('invalid'); valid=false; } else document.getElementById('sm-title').classList.remove('invalid');
-    if(creators.length===0){ document.getElementById('sm-creators-wrap').classList.add('invalid'); valid=false; } else document.getElementById('sm-creators-wrap').classList.remove('invalid');
-    if(!years){ document.getElementById('sm-years').classList.add('invalid'); valid=false; } else document.getElementById('sm-years').classList.remove('invalid');
-    if(!status){ document.getElementById('sm-status').classList.add('invalid'); valid=false; } else document.getElementById('sm-status').classList.remove('invalid');
-    if(platforms.length===0){ document.getElementById('sm-platforms-wrap').classList.add('invalid'); valid=false; } else document.getElementById('sm-platforms-wrap').classList.remove('invalid');
-    if(countries.length===0){ document.getElementById('sm-countries-wrap').classList.add('invalid'); valid=false; } else document.getElementById('sm-countries-wrap').classList.remove('invalid');
-    if(!epDur){ document.getElementById('sm-dur').classList.add('invalid'); valid=false; } else document.getElementById('sm-dur').classList.remove('invalid');
+    const missing=[];
+    if(!title){ document.getElementById('sm-title').classList.add('invalid'); valid=false; missing.push('Titre'); } else document.getElementById('sm-title').classList.remove('invalid');
+    if(creators.length===0){ document.getElementById('sm-creators-wrap').classList.add('invalid'); valid=false; missing.push('Créateur(s)'); } else document.getElementById('sm-creators-wrap').classList.remove('invalid');
+    if(!years){ document.getElementById('sm-years').classList.add('invalid'); valid=false; missing.push('Année(s)'); } else document.getElementById('sm-years').classList.remove('invalid');
+    if(!status){ document.getElementById('sm-status').classList.add('invalid'); valid=false; missing.push('Statut'); } else document.getElementById('sm-status').classList.remove('invalid');
+    if(platforms.length===0){ document.getElementById('sm-platforms-wrap').classList.add('invalid'); valid=false; missing.push('Chaîne / Plateforme(s)'); } else document.getElementById('sm-platforms-wrap').classList.remove('invalid');
+    if(countries.length===0){ document.getElementById('sm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); } else document.getElementById('sm-countries-wrap').classList.remove('invalid');
+    if(!epDur){ document.getElementById('sm-dur').classList.add('invalid'); valid=false; missing.push('Durée moy. épisode'); } else document.getElementById('sm-dur').classList.remove('invalid');
     const totalEps=seasons.reduce((a,sn)=>a+sn.episodes.length,0);
-    if(totalEps===0){ alert('La série doit avoir au moins un épisode.'); valid=false; }
-    if(!valid) return false;
+    if(totalEps===0){ missing.push('au moins un épisode'); valid=false; }
+    if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
 
     const cleanSeasons = seasons.map(sn=>({
       name: sn.name||'',
@@ -3484,12 +3487,13 @@ function openWatchlistToFilmForm(w) {
     const year=document.getElementById('fm-year').value.trim();
     const duration=document.getElementById('fm-duration').value.trim();
     let valid=true;
-    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; }
-    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; }
-    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; }
-    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; }
-    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; }
-    if(!valid) return false;
+    const missing=[];
+    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; missing.push('Titre'); }
+    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; missing.push('Réalisateur(s)'); }
+    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; missing.push('Année'); }
+    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; missing.push('Durée'); }
+    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); }
+    if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const notes=document.getElementById('fm-notes').value.trim();
     const poster=window._capturedPoster||'';
     const newId = uid();
@@ -3569,16 +3573,17 @@ function openWatchlistToSerieForm(w) {
     const status=document.getElementById('sm-status').value;
     const epDur=document.getElementById('sm-dur').value.trim();
     let valid=true;
-    if(!title){ document.getElementById('sm-title').classList.add('invalid'); valid=false; }
-    if(creators.length===0){ document.getElementById('sm-creators-wrap').classList.add('invalid'); valid=false; }
-    if(!years){ document.getElementById('sm-years').classList.add('invalid'); valid=false; }
-    if(!status){ document.getElementById('sm-status').classList.add('invalid'); valid=false; }
-    if(platforms.length===0){ document.getElementById('sm-platforms-wrap').classList.add('invalid'); valid=false; }
-    if(countries.length===0){ document.getElementById('sm-countries-wrap').classList.add('invalid'); valid=false; }
-    if(!epDur){ document.getElementById('sm-dur').classList.add('invalid'); valid=false; }
+    const missing=[];
+    if(!title){ document.getElementById('sm-title').classList.add('invalid'); valid=false; missing.push('Titre'); }
+    if(creators.length===0){ document.getElementById('sm-creators-wrap').classList.add('invalid'); valid=false; missing.push('Créateur(s)'); }
+    if(!years){ document.getElementById('sm-years').classList.add('invalid'); valid=false; missing.push('Année(s)'); }
+    if(!status){ document.getElementById('sm-status').classList.add('invalid'); valid=false; missing.push('Statut'); }
+    if(platforms.length===0){ document.getElementById('sm-platforms-wrap').classList.add('invalid'); valid=false; missing.push('Chaîne / Plateforme(s)'); }
+    if(countries.length===0){ document.getElementById('sm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); }
+    if(!epDur){ document.getElementById('sm-dur').classList.add('invalid'); valid=false; missing.push('Durée moy. épisode'); }
     const totalEps=seasons.reduce((a,sn)=>a+sn.episodes.length,0);
-    if(totalEps===0){ alert('La série doit avoir au moins un épisode.'); valid=false; }
-    if(!valid) return false;
+    if(totalEps===0){ missing.push('au moins un épisode'); valid=false; }
+    if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const poster=window._capturedPoster||'';
     const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))}));
     DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,poster,abandoned:false,lastInteracted:0,tmdbId});
