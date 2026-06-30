@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.5.1';
+const APP_VERSION = 'v3.5.2';
 
 function loadDB() {
   try {
@@ -4741,9 +4741,11 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
   window._capturedPoster = sf.poster||'';
   const dirs = parseNames(sf.directors||[]);
   const countries = parseNames(sf.countries||[]);
+  const genres = parseNames(sf.genres||[]);
 
   createModal('Marquer comme vu', `
     <div style="background:rgba(232,196,106,.08);border:1px solid rgba(232,196,106,.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--gold)">✓ Complétez les informations pour ajouter ce film à votre cinémathèque.</div>
+    <div id="fm-tmdb-box"></div>
     <div class="form-group">
       <label class="form-label">Titre *</label>
       <input class="form-input" id="fm-title" value="${esc(sf.title||'')}">
@@ -4768,6 +4770,12 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
       <label class="form-label">Pays * <small style="color:var(--text-dim)">(Entrée pour ajouter)</small></label>
       <div class="tag-input-wrap" id="fm-countries-wrap" onclick="document.getElementById('fm-countries-input').focus()">
         <input class="tag-input" id="fm-countries-input" placeholder="Ajouter un pays...">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Genre(s) <small style="color:var(--text-dim)">(optionnel, recommandé — Entrée)</small></label>
+      <div class="tag-input-wrap" id="fm-genres-wrap" onclick="document.getElementById('fm-genres-input').focus()">
+        <input class="tag-input" id="fm-genres-input" placeholder="Action, Drame...">
       </div>
     </div>
     <div class="form-group">
@@ -4806,8 +4814,8 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
     const poster = window._capturedPoster!==undefined ? window._capturedPoster : (sf.poster||'');
 
     // Update the saga's record and add the film to the main collection
-    sf.title=title; sf.directors=[...dirs]; sf.countries=[...countries]; sf.year=year; sf.duration=parseInt(duration); sf.poster=poster; sf.unseen=false;
-    DB.films.push({id:sf.id,title,directors:[...dirs],countries:[...countries],genres:[],year,duration:parseInt(duration),notes,poster});
+    sf.title=title; sf.directors=[...dirs]; sf.countries=[...countries]; sf.genres=[...genres]; sf.year=year; sf.duration=parseInt(duration); sf.poster=poster; sf.unseen=false;
+    DB.films.push({id:sf.id,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
     const watchedToday = document.getElementById('fm-watched-today');
     if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:sf.id, sagaId});
     saveDB(); closeModal();
@@ -4815,8 +4823,32 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
   });
   renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
   renderTags('fm-countries-wrap',countries,'fm-countries-input');
+  renderTags('fm-genres-wrap',genres,'fm-genres-input');
   setupTagInput('fm-dirs-input','fm-dirs-wrap',dirs);
   setupTagInput('fm-countries-input','fm-countries-wrap',countries);
+  setupTagInputWithAutocomplete('fm-genres-input','fm-genres-wrap',genres,knownGenres);
+
+  async function onTmdbMoviePick(picked) {
+    const box = document.getElementById('fm-tmdb-box');
+    box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress">Récupération des informations...</div></div>`;
+    try {
+      const details = await tmdbMovieDetails(picked.id);
+      document.getElementById('fm-title').value = details.title;
+      document.getElementById('fm-year').value = details.year;
+      if(details.duration) document.getElementById('fm-duration').value = details.duration;
+      dirs.length = 0; details.directors.forEach(d=>dirs.push(d));
+      renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
+      countries.length = 0; details.countries.forEach(c=>countries.push(c));
+      renderTags('fm-countries-wrap',countries,'fm-countries-input');
+      genres.length = 0; (details.genres||[]).forEach(g=>genres.push(g));
+      renderTags('fm-genres-wrap',genres,'fm-genres-input');
+      renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
+      document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
+    } catch(e) {
+      box.innerHTML = `<div class="tmdb-search-wrap"><div style="color:var(--red);font-size:12px">Erreur lors de la récupération des détails.</div></div>`;
+    }
+  }
+  renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
 }
 
 function removeSagaFilm(sagaId, filmId) {
