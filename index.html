@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.5.2';
+const APP_VERSION = 'v3.5.3';
 
 function loadDB() {
   try {
@@ -3601,21 +3601,134 @@ function openWatchlistToSerieForm(w) {
   const genres=[];
   let seasons=[];
 
-  function rse(){
+
+  function addWeek(dateStr) {
+    const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(!m) return '';
+    const d = new Date(Date.UTC(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3])));
+    d.setUTCDate(d.getUTCDate()+7);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+  }
+  const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s||''));
+  // Internal storage stays YYYY-MM-DD (sortable, used for the +1 week math).
+  // Display/input uses DD-MM-YYYY.
+  function isoToDisplay(iso) {
+    const m = String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : (iso||'');
+  }
+  function displayToIso(disp) {
+    const m = String(disp||'').trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+  }
+
+  function renderSeasonsEditor() {
     const wrap=document.getElementById('fm-seasons-editor'); if(!wrap) return;
-    wrap.innerHTML=seasons.map((season,si)=>`
+    wrap.innerHTML = seasons.map((season,si)=>`
       <div style="background:var(--surface3);border-radius:8px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b>${esc(seasonLabel(season,si))}</b><button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button></div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <label class="form-label" style="margin:0">Épisodes :</label>
-          <input type="number" min="1" class="form-input" style="width:80px;padding:6px 10px" value="${season.episodes.length}" onchange="resizeSeason(${si},this.value)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <b>Saison ${si+1}</b>
+          <button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button>
+        </div>
+        <div class="form-row" style="margin-bottom:10px">
+          <div>
+            <label class="form-label" style="margin-bottom:4px">Nom de la saison <small style="color:var(--text-dim)">(optionnel)</small></label>
+            <input class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Ex: Les Origines" value="${esc(season.name||'')}" oninput="setSeasonName(${si},this.value)">
+          </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px">Nb épisodes</label>
+            <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" value="${season.episodes.length}" onchange="resizeSeason(${si},this.value)">
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">(vus : ${season.episodes.filter(e=>e.seen).length})</div>
+        <button class="btn btn-secondary btn-xs" onclick="toggleEpDetails(${si})">
+          ${season._showDetails?'▼ Masquer titres/dates':'▶ Titres & dates (optionnel)'}
+        </button>
+        <div id="ep-details-${si}" style="display:${season._showDetails?'block':'none'};margin-top:10px">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Format date : JJ-MM-AAAA</div>
+          <div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="opt-sameday-${si}" ${season._sameDay?'checked':''} onchange="toggleSameDay(${si},this.checked)">
+              Même date pour toute la saison
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="opt-weekly-${si}" ${season._weekly?'checked':''} onchange="toggleWeekly(${si},this.checked)">
+              +1 semaine entre chaque épisode
+            </label>
+          </div>
+          ${season.episodes.map((ep,ei)=>`
+            <div style="display:grid;grid-template-columns:28px 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px">
+              <span style="font-size:12px;color:var(--text-dim);text-align:right">E${ei+1}</span>
+              <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(ep.title||'')}" oninput="setEpField(${si},${ei},'title',this.value)">
+              <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Date (JJ-MM-AAAA)" value="${esc(isoToDisplay(ep.airdate))}" onchange="setEpDate(${si},${ei},this.value)">
+            </div>`).join('')}
         </div>
       </div>`).join('')
-    +`<button class="btn btn-secondary btn-sm" onclick="addSeason()">＋ Saison</button>`;
+    + `<button class="btn btn-secondary btn-sm" onclick="addSeason()" style="margin-top:4px">＋ Ajouter une saison</button>`;
   }
-  window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}]}); rse(); };
-  window.removeSeason=(si)=>{ seasons.splice(si,1); rse(); };
-  window.resizeSeason=(si,n)=>{ n=Math.max(1,parseInt(n)||1); const c=seasons[si].episodes; while(c.length<n)c.push({seen:false,title:'',airdate:''}); while(c.length>n)c.pop(); rse(); };
+
+  window.toggleEpDetails=(si)=>{ seasons[si]._showDetails=!seasons[si]._showDetails; renderSeasonsEditor(); };
+  window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
+  window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
+  window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
+  window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
+  window.resizeSeason=(si,n)=>{
+    n=Math.max(1,parseInt(n)||1);
+    const cur=seasons[si].episodes;
+    while(cur.length<n) cur.push({seen:false,title:'',airdate:''});
+    while(cur.length>n) cur.pop();
+    renderSeasonsEditor();
+  };
+  window.toggleSameDay=(si,checked)=>{ seasons[si]._sameDay=checked; if(checked) seasons[si]._weekly=false; renderSeasonsEditor(); };
+  window.toggleWeekly=(si,checked)=>{ seasons[si]._weekly=checked; if(checked) seasons[si]._sameDay=false; renderSeasonsEditor(); };
+
+  window.setEpDate = (si, ei, val) => {
+    const season = seasons[si];
+    const iso = displayToIso(val);
+    if(val.trim() && !iso) {
+      // Invalid format typed — keep raw text so user can fix it, don't crash cascade logic
+      season.episodes[ei].airdate = '';
+      alert('Format de date invalide. Utilisez JJ-MM-AAAA (ex: 11-06-2026).');
+      renderSeasonsEditor();
+      return;
+    }
+    season.episodes[ei].airdate = iso;
+    if(!isValidDate(iso)) { renderSeasonsEditor(); return; }
+
+    if(season._sameDay) {
+      const apply = () => {
+        season.episodes.forEach(ep=>{ ep.airdate = iso; });
+        renderSeasonsEditor();
+      };
+      const hasOtherDates = season.episodes.some((ep,idx)=>idx!==ei && ep.airdate && ep.airdate!==iso);
+      if(hasOtherDates) {
+        if(confirm('Certains épisodes ont déjà une date différente. Les écraser avec cette date pour toute la saison ?')) apply();
+        else renderSeasonsEditor();
+      } else apply();
+      return;
+    }
+
+    if(season._weekly) {
+      let cascade = (fromIdx, overwriteThrough) => {
+        let curDate = season.episodes[fromIdx].airdate;
+        for(let idx=fromIdx+1; idx<season.episodes.length; idx++) {
+          const next = season.episodes[idx];
+          const computed = addWeek(curDate);
+          if(next.airdate && isValidDate(next.airdate) && next.airdate !== computed && !overwriteThrough) {
+            if(confirm(`L'épisode E${idx+1} a déjà une date (${isoToDisplay(next.airdate)}). Continuer en l'écrasant avec la cascade hebdomadaire ?`)) {
+              cascade(fromIdx, true);
+            }
+            return;
+          }
+          next.airdate = computed;
+          curDate = computed;
+        }
+      };
+      cascade(ei, false);
+      renderSeasonsEditor();
+      return;
+    }
+    renderSeasonsEditor();
+  };
 
   let tmdbId = w.tmdbId || null;
 
@@ -3634,6 +3747,14 @@ function openWatchlistToSerieForm(w) {
     <div class="form-group"><label class="form-label">Genre(s) <small style="color:var(--text-dim)">(optionnel)</small></label><div class="tag-input-wrap" id="sm-genres-wrap" onclick="document.getElementById('sm-genres-input').focus()"><input class="tag-input" id="sm-genres-input" placeholder="Ajouter..."></div></div>
     <div class="form-group"><label class="form-label">Durée moy. épisode (min) *</label><input class="form-input" id="sm-dur" type="number"></div>
     <div class="form-group"><label class="form-label">Saisons & Épisodes *</label><div id="fm-seasons-editor"></div></div>
+    <div class="form-group">
+      <label class="form-label">Poster</label>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="sm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">🎬</div>
+        <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'sm-poster-prev')"></label>
+        <button class="btn btn-danger btn-sm" id="sm-poster-del" onclick="clearPosterBtn('sm-poster-prev','sm-poster-del')" style="display:none">Supprimer</button>
+      </div>
+    </div>
   `,()=>{
     const title=document.getElementById('sm-title').value.trim();
     const years=document.getElementById('sm-years').value.trim();
@@ -3665,7 +3786,7 @@ function openWatchlistToSerieForm(w) {
   setupTagInput('sm-countries-input','sm-countries-wrap',countries);
   setupTagInputWithAutocomplete('sm-platforms-input','sm-platforms-wrap',platforms,knownPlatforms);
   setupTagInputWithAutocomplete('sm-genres-input','sm-genres-wrap',genres,knownGenres);
-  rse();
+  renderSeasonsEditor();
 
   // If this watchlist entry was added via TMDB search, fetch the full series
   // details AND every season's episodes right away — the whole point of
@@ -3688,7 +3809,7 @@ function openWatchlistToSerieForm(w) {
         });
         seasons.length = 0;
         fetchedSeasons.forEach(sn=>seasons.push(sn));
-        rse();
+        renderSeasonsEditor();
         if(banner) banner.textContent = '✓ Série, saisons et épisodes récupérés depuis TMDB — vérifiez avant d\'enregistrer.';
       } catch(e) {
         const banner = document.getElementById('wl2s-banner');
