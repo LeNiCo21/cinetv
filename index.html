@@ -300,7 +300,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.4.1';
+const APP_VERSION = 'v3.4.4';
 
 function loadDB() {
   try {
@@ -1116,6 +1116,61 @@ function buildWrappedData(year) {
     .filter(Boolean)
     .sort((a,b) => b.eps - a.eps);
 
+  // ---- Données pour insights personnalisés ----
+
+  // Genres par saison (DJF=hiver, MAM=printemps, JJA=été, SON=automne)
+  const seasonGenres = {hiver:{}, printemps:{}, ete:{}, automne:{}};
+  const monthToSeason = m => m<=1||m===11?'hiver':m<=4?'printemps':m<=7?'ete':'automne';
+  filmEntries.forEach(e=>{
+    const s = monthToSeason(new Date(e.date).getMonth());
+    parseNames(e.film.genres).forEach(g=>{ seasonGenres[s][g]=(seasonGenres[s][g]||0)+1; });
+  });
+  epEntries.forEach(e=>{
+    const s = monthToSeason(new Date(e.date).getMonth());
+    parseNames(e.r.serie.genres||[]).forEach(g=>{ seasonGenres[s][g]=(seasonGenres[s][g]||0)+1; });
+  });
+  // Dominant genre per season
+  const seasonDominant = {};
+  Object.entries(seasonGenres).forEach(([s,gc])=>{
+    const sorted = Object.entries(gc).sort((a,b)=>b[1]-a[1]);
+    if(sorted.length) seasonDominant[s] = sorted[0][0];
+  });
+
+  // Genre dominant par mois (pour "vos soirées de X étaient plutôt Y")
+  const monthGenres = Array.from({length:12},()=>({}));
+  filmEntries.forEach(e=>{
+    const m = new Date(e.date).getMonth();
+    parseNames(e.film.genres).forEach(g=>{ monthGenres[m][g]=(monthGenres[m][g]||0)+1; });
+  });
+  epEntries.forEach(e=>{
+    const m = new Date(e.date).getMonth();
+    parseNames(e.r.serie.genres||[]).forEach(g=>{ monthGenres[m][g]=(monthGenres[m][g]||0)+1; });
+  });
+  const monthDominantGenre = monthGenres.map(gc=>{
+    const sorted = Object.entries(gc).sort((a,b)=>b[1]-a[1]);
+    return sorted.length ? sorted[0][0] : null;
+  });
+
+  // Taux de complétion des séries
+  const seriesTotal = seriesWatched.length;
+  const completionRate = seriesTotal ? Math.round(seriesCompleted.length/seriesTotal*100) : 0;
+
+  // Ancienneté des films — % de films récents (<=5 ans) vs classiques
+  const currentYear = year;
+  const recentFilms = filmsWatched.filter(f=>parseInt(f.year)>= currentYear-5).length;
+  const recentFilmPct = filmCount ? Math.round(recentFilms/filmCount*100) : 0;
+  const oldestFilm = filmsWatched.filter(f=>f.year).sort((a,b)=>parseInt(a.year)-parseInt(b.year))[0] || null;
+  const newestFilm = filmsWatched.filter(f=>f.year).sort((a,b)=>parseInt(b.year)-parseInt(a.year))[0] || null;
+
+  // Rythme fin d'année (nov+déc vs moyenne mensuelle)
+  const endYearCount = (byMonthCount[10]||0) + (byMonthCount[11]||0);
+  const activeMonthsCount = byMonthCount.filter(v=>v>0).length || 1;
+  const avgMonthCount = (filmEntries.length + epEntries.length) / activeMonthsCount;
+  const endYearAcceleration = avgMonthCount > 0 ? (endYearCount/2) / avgMonthCount : 0;
+
+  // Sagas étalées (commencées et non finies = étalées sur plusieurs sessions)
+  const sagasSpread = sagasStartedNotCompleted ? sagasStartedNotCompleted.length : 0;
+
   return {
     year, prevYearHasData,
     // section 2
@@ -1143,6 +1198,10 @@ function buildWrappedData(year) {
     biggestSaga, mostTimeSaga, mostTimeSagaMin, isolatedFilmsCount, sagaFilmsCount,
     // section 9
     allWorksCount,
+    // section 10 — insights personnalisés
+    seasonDominant, monthDominantGenre,
+    completionRate, recentFilmPct, oldestFilm, newestFilm,
+    endYearAcceleration, sagasSpread,
     // section 12
     comparison, genreUp, genreDown
   };
@@ -1246,6 +1305,72 @@ function buildWrappedNarrative(d) {
   if(d.avgSeriesLength>=50) insightCandidates.push({weight:3, text:`Vos séries suivies cette année comptent en moyenne ${d.avgSeriesLength} épisodes — du gros calibre.`});
   else if(d.avgSeriesLength>0 && d.avgSeriesLength<=10) insightCandidates.push({weight:2, text:`Format court à l'honneur : vos séries suivies font en moyenne ${d.avgSeriesLength} épisodes.`});
 
+  // Genres par saison — genre différent du dominant = intéressant ; identique partout = cohérence
+  const SEASON_NAMES = {hiver:'hiver', printemps:'printemps', ete:'été', automne:'automne'};
+  if(d.seasonDominant) {
+    const seasonValues = Object.values(d.seasonDominant).filter(Boolean);
+    const allSame = seasonValues.length > 1 && seasonValues.every(g => g === seasonValues[0]);
+    if(allSame && seasonValues.length >= 3) {
+      insightCandidates.push({weight:4, text:'Une constante toute l\'année : vous regardez du '+seasonValues[0]+' quelle que soit la saison.'});
+    } else {
+      Object.entries(d.seasonDominant).forEach(([s, g]) => {
+        if(g && g !== d.dominantGenre) insightCandidates.push({weight:5, text:'En '+SEASON_NAMES[s]+', vous regardez surtout du '+g+'.'});
+      });
+    }
+  }
+
+  // Genre dominant d'un mois spécifique (prendre le mois le plus actif)
+  if(d.maxMonth !== null && d.monthDominantGenre && d.monthDominantGenre[d.maxMonth]) {
+    const g = d.monthDominantGenre[d.maxMonth];
+    insightCandidates.push({weight:5, text:'Vos soirées de '+MONTH_NAMES_FR[d.maxMonth]+' étaient surtout consacrées au '+g+'.'});
+  }
+
+  // Taux de complétion des séries — 3 cas
+  if(d.seriesCount > 2) {
+    if(d.completionRate >= 80) insightCandidates.push({weight:6, text:'Quand vous commencez une série, vous la finissez : '+d.completionRate+'% de vos séries menées jusqu\'au bout.'});
+    else if(d.completionRate <= 30) insightCandidates.push({weight:4, text:'Vous aimez explorer : seulement '+d.completionRate+'% de vos séries ont été terminées cette année.'});
+    else insightCandidates.push({weight:3, text:'Un équilibre entre exploration et fidélité : '+d.completionRate+'% de vos séries terminées cette année.'});
+  }
+
+  // Films récents vs classiques — 3 cas
+  if(d.filmCount >= 5) {
+    if(d.recentFilmPct >= 70) insightCandidates.push({weight:4, text:'Vous êtes tourné(e) vers l\'actualité : '+d.recentFilmPct+'% de vos films datent de moins de 5 ans.'});
+    else if(d.recentFilmPct <= 30) insightCandidates.push({weight:4, text:'Amateur de cinéma classique : '+(100-d.recentFilmPct)+'% de vos films ont plus de 5 ans.'});
+    else insightCandidates.push({weight:2, text:'Un bon équilibre entre films récents et classiques dans votre sélection cette année.'});
+  }
+
+  // Film le plus ancien — 2 cas
+  if(d.oldestFilm && d.oldestFilm.year) {
+    const filmAge = d.year - parseInt(d.oldestFilm.year);
+    if(filmAge > 30) insightCandidates.push({weight:3, text:'Votre plongée la plus profonde dans le passé : '+d.oldestFilm.title+' ('+d.oldestFilm.year+').'});
+    else if(filmAge <= 2) insightCandidates.push({weight:2, text:'Vous êtes à jour : votre film le plus ancien ne date que de '+d.oldestFilm.year+'.'});
+  }
+
+  // Accélération ou ralentissement fin d'année — 2 cas
+  if(d.endYearAcceleration >= 1.5) insightCandidates.push({weight:5, text:'Votre rythme s\'est accéléré en fin d\'année : novembre-décembre bien au-dessus de votre moyenne mensuelle.'});
+  else if(d.endYearAcceleration > 0 && d.endYearAcceleration <= 0.5) insightCandidates.push({weight:3, text:'Fin d\'année calme : novembre-décembre en retrait par rapport à votre rythme habituel.'});
+
+  // Sagas — 3 cas
+  if(d.sagasTouchedCount > 0) {
+    if(d.sagasCompletedCount === d.sagasTouchedCount) {
+      insightCandidates.push({weight:5, text:'Efficacité maximale : toutes vos sagas entamées cette année ont été terminées.'});
+    } else if(d.sagasSpread >= 2 && d.sagasCompletedCount === 0) {
+      insightCandidates.push({weight:3, text:'Vous prenez votre temps avec les sagas : '+d.sagasSpread+' entamées mais pas encore terminées.'});
+    } else if(d.sagasCompletedCount > 0 && d.sagasSpread > 0) {
+      insightCandidates.push({weight:3, text:'Vous avancez dans vos sagas : '+d.sagasCompletedCount+' bouclée'+(d.sagasCompletedCount>1?'s':'')+', '+d.sagasSpread+' encore en cours.'});
+    }
+  }
+
+  // Pays — 3 cas
+  if(d.top5Countries.length && d.countriesUniqueCount >= 3) {
+    if(d.dominantCountryPct <= 25) {
+      insightCandidates.push({weight:4, text:'Grande diversité géographique : aucun pays ne domine vraiment, le premier ne représente que '+d.dominantCountryPct+'% de votre consommation.'});
+    } else if(d.dominantCountryPct < 60) {
+      insightCandidates.push({weight:2, text:'Un beau mélange d\'origines : '+d.countriesUniqueCount+' pays représentés dans votre cinéma de l\'année.'});
+    }
+    // dominantCountryPct >= 60 is handled in highlights
+  }
+
   insightCandidates.sort((a,b)=>b.weight-a.weight);
   blocks.insights = insightCandidates.slice(0,6).map(c=>c.text);
 
@@ -1276,6 +1401,12 @@ function buildWrappedNarrative(d) {
   if(d.dominantGenre && d.top5Genres.length && d.top5Genres[0][1]>=8) {
     highlightCandidates.push({weight:3, text:`Genre obsession de l'année : "${d.dominantGenre}", ${d.top5Genres[0][1]} œuvres au compteur.`});
   }
+
+  // Film le plus récent
+  if(d.newestFilm && d.newestFilm.year && parseInt(d.newestFilm.year) >= d.year) highlightCandidates.push({weight:4, text:`Film le plus récent vu cette année : ${d.newestFilm.title} (${d.newestFilm.year}).`});
+
+  // Affinité pays
+  if(d.dominantCountryPct >= 60 && d.top5Countries.length) highlightCandidates.push({weight:5, text:`Vous avez une affinité particulière pour les productions ${d.top5Countries[0][0]} : ${d.dominantCountryPct}% de votre consommation.`});
 
   highlightCandidates.sort((a,b)=>b.weight-a.weight);
   blocks.highlights = highlightCandidates.slice(0,3).map(c=>c.text);
@@ -3618,7 +3749,11 @@ function buildWrappedSlides(d, narrative) {
   <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-top:6px">
     <span>🎬 Films ${d.filmPct}%</span>
     <span>📺 Séries ${d.seriesPct}%</span>
-  </div>`;
+  </div>
+  ${d.comparison && d.comparison.filmCountPct !== null ? `<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    ${d.comparison.filmCountDelta !== 0 ? `<span style="font-size:12px;padding:4px 10px;border-radius:20px;background:var(--surface2);color:${d.comparison.filmCountDelta>0?'var(--green)':'var(--red)'}">Films ${d.comparison.filmCountDelta>0?'+':''}${d.comparison.filmCountDelta} (${d.comparison.filmCountPct>0?'+':''}${d.comparison.filmCountPct}%) vs ${d.year-1}</span>` : ''}
+    ${d.comparison.seriesCountDelta !== 0 ? `<span style="font-size:12px;padding:4px 10px;border-radius:20px;background:var(--surface2);color:${d.comparison.seriesCountDelta>0?'var(--green)':'var(--red)'}">Séries ${d.comparison.seriesCountDelta>0?'+':''}${d.comparison.seriesCountDelta} vs ${d.year-1}</span>` : ''}
+  </div>` : ''}`;
   slides.push(wrappedSection('✨ Ton année en un coup d\'œil', introHTML));
 
   // ---- 2) Films ----
@@ -3763,6 +3898,22 @@ function buildWrappedSlides(d, narrative) {
     }).join('');
     const freqHTML = '<div style="display:flex;gap:2px;align-items:flex-end;padding:8px 0">' + bars + '</div>';
     slides.push(wrappedSection('📈 Fréquence mensuelle', freqHTML));
+  }
+
+  // ---- 5c) Exploration géographique ----
+  if(d.countriesUniqueCount > 0 && d.top5Countries.length) {
+    const topCountry = d.top5Countries[0];
+    let explHTML = `<div style="text-align:center;padding:12px 0 16px">
+      <div style="font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Pays explorés</div>
+      <div style="font-family:var(--font-display);font-size:48px;color:var(--gold);line-height:1">${d.countriesUniqueCount}</div>
+      <div style="font-size:13px;color:var(--text-dim);margin-top:10px">Pays dominant : <b style="color:var(--text)">${esc(topCountry[0])}</b> (${d.dominantCountryPct}%)</div>
+    </div>`;
+    if(d.newCountries && d.newCountries.length) {
+      explHTML += `<div style="font-size:13px;color:var(--text-dim);margin-top:4px;text-align:center">
+        🗺️ ${d.newCountries.length} nouveau${d.newCountries.length>1?'x':''} pays découvert${d.newCountries.length>1?'s':''} : ${d.newCountries.map(esc).join(', ')}
+      </div>`;
+    }
+    slides.push(wrappedSection('🌍 Exploration', explHTML));
   }
 
   // ---- 6) Insights & faits marquants ----
