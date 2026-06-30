@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.5.4';
+const APP_VERSION = 'v3.5.5';
 
 function loadDB() {
   try {
@@ -2622,8 +2622,7 @@ function serieDetailBodyHTML(s) {
       <div style="display:flex;gap:6px">
         ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="refreshSerieFromTmdbInModal('${s.id}')" title="Actualiser via TMDB">🔄</button>` : ''}
         <button class="btn ${window._epSelectMode===s.id?'btn-primary':'btn-secondary'} btn-xs" onclick="toggleEpSelectMode('${s.id}')" title="Sélectionner plusieurs épisodes vus il y a longtemps">✎ ${window._epSelectMode===s.id?'Annuler':'Sélection'}</button>
-        <button class="btn btn-green btn-xs" onclick="markSerieAll('${s.id}',true)">✓ Tout vu</button>
-        <button class="btn btn-secondary btn-xs" onclick="markSerieAll('${s.id}',false)">✗ Tout non vu</button>
+        <button class="btn ${serieSeenEps(s)===serieTotalEps(s)&&serieTotalEps(s)>0?'btn-secondary':'btn-green'} btn-xs" onclick="toggleSerieAllSeen('${s.id}')" title="${serieSeenEps(s)===serieTotalEps(s)&&serieTotalEps(s)>0?'Tout non vu':'Tout vu'}">${serieSeenEps(s)===serieTotalEps(s)&&serieTotalEps(s)>0?'✗':'✓'}</button>
       </div>
     </div>
     ${window._epSelectMode===s.id ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(74,158,255,.1);border:1px solid rgba(74,158,255,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px">
