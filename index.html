@@ -3742,15 +3742,22 @@ function buildWrappedSlides(d, narrative) {
   }
 
   // ---- 6) Insights & faits marquants ----
-  const allNotes = [...(narrative.insights||[]), ...(narrative.highlights||[])];
-  if(allNotes.length) {
-    let notesHTML = `<div style="display:flex;flex-direction:column;gap:10px">`;
-    allNotes.forEach((n, i) => {
-      const isHighlight = i >= (narrative.insights||[]).length;
-      notesHTML += `<div style="padding:10px 14px;background:${isHighlight?'rgba(232,196,106,.08)':'var(--surface2)'};border-left:3px solid ${isHighlight?'var(--gold)':'var(--gold-dim)'};border-radius:6px;font-size:13px">${isHighlight?'⭐ ':'💡 '}${esc(n)}</div>`;
+  if((narrative.insights||[]).length) {
+    let insightsHTML = `<div style="display:flex;flex-direction:column;gap:10px">`;
+    narrative.insights.forEach(n => {
+      insightsHTML += `<div style="padding:10px 14px;background:var(--surface2);border-left:3px solid var(--gold-dim);border-radius:6px;font-size:13px">💡 ${esc(n)}</div>`;
     });
-    notesHTML += `</div>`;
-    slides.push(wrappedSection('💡 Le saviez-vous ?', notesHTML));
+    insightsHTML += `</div>`;
+    slides.push(wrappedSection('💡 Le saviez-vous ?', insightsHTML));
+  }
+
+  if((narrative.highlights||[]).length) {
+    let highlightsHTML = `<div style="display:flex;flex-direction:column;gap:10px">`;
+    narrative.highlights.forEach(n => {
+      highlightsHTML += `<div style="padding:10px 14px;background:rgba(232,196,106,.08);border-left:3px solid var(--gold);border-radius:6px;font-size:13px">⭐ ${esc(n)}</div>`;
+    });
+    highlightsHTML += `</div>`;
+    slides.push(wrappedSection('⭐ Faits marquants', highlightsHTML));
   }
 
   const closingHTML = narrative.closing ? `
