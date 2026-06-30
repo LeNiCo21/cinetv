@@ -213,6 +213,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .ep-seen-dot{width:10px;height:10px;border-radius:50%;background:var(--gold);flex-shrink:0;}
 .ep-unseen-dot{width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--border);flex-shrink:0;}
 .ep-row-label{flex:1;}
+.ep-row-selected{background:rgba(74,158,255,.15)!important;border-color:#4a9eff!important;}
+.ep-btn-selected{outline:2px solid #4a9eff;outline-offset:1px;}
 .ep-row-date{font-size:11px;color:var(--text-dim);flex-shrink:0;}
 ::-webkit-scrollbar{width:6px;}
 ::-webkit-scrollbar-track{background:var(--surface);}
@@ -301,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.4.5';
+const APP_VERSION = 'v3.5.0';
 
 function loadDB() {
   try {
@@ -2331,6 +2333,12 @@ function openFilmForm(id) {
       <label class="form-label">Saga</label>
       <div id="fm-saga-section">${buildFilmSagaSection(film?.id)}</div>
     </div>
+    ${!film ? `<div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="fm-watched-today" checked>
+        Marquer comme vu aujourd'hui <small style="color:var(--text-dim)">(décochez si vu il y a plus longtemps — ne sera pas compté dans le bilan annuel)</small>
+      </label>
+    </div>` : ''}
     <div class="form-group">
       <label class="form-label">Poster</label>
       <div style="display:flex;align-items:center;gap:12px">
@@ -2369,7 +2377,8 @@ function openFilmForm(id) {
     } else {
       const newId = uid();
       DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
-      logWatch({type:'film', filmId:newId});
+      const watchedToday = document.getElementById('fm-watched-today');
+      if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:newId});
     }
     const savedId = film ? film.id : DB.films[DB.films.length-1].id;
 
@@ -2612,10 +2621,15 @@ function serieDetailBodyHTML(s) {
       <div class="card-title" style="font-size:14px;margin-bottom:0">Saisons & Épisodes</div>
       <div style="display:flex;gap:6px">
         ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="refreshSerieFromTmdbInModal('${s.id}')" title="Actualiser via TMDB">🔄</button>` : ''}
+        <button class="btn ${window._epSelectMode===s.id?'btn-primary':'btn-secondary'} btn-xs" onclick="toggleEpSelectMode('${s.id}')" title="Sélectionner plusieurs épisodes vus il y a longtemps">✎ ${window._epSelectMode===s.id?'Annuler':'Sélection'}</button>
         <button class="btn btn-green btn-xs" onclick="markSerieAll('${s.id}',true)">✓ Tout vu</button>
         <button class="btn btn-secondary btn-xs" onclick="markSerieAll('${s.id}',false)">✗ Tout non vu</button>
       </div>
     </div>
+    ${window._epSelectMode===s.id ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(74,158,255,.1);border:1px solid rgba(74,158,255,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px">
+      <span style="font-size:12px;color:#4a9eff">☑ Mode sélection actif — cochez les épisodes vus, puis validez (${window._epSelection?window._epSelection.size:0} sélectionné${(window._epSelection&&window._epSelection.size>1)?'s':''})</span>
+      <button class="btn btn-primary btn-xs" onclick="validateEpSelection('${s.id}')">Valider</button>
+    </div>` : ''}
     ${(()=>{ const nx=findNextEpisode(s); if(!nx) return ''; const epObj=s.seasons[nx.si]?.episodes[nx.ei]; const label=epObj?.title?`S${nx.s}E${nx.e} — ${epObj.title}`:`S${nx.s}E${nx.e}`; return `<div style="display:flex;align-items:center;gap:10px;background:rgba(232,196,106,.08);border:1px solid rgba(232,196,106,.2);border-radius:8px;padding:8px 12px;margin-bottom:12px"><span style="font-size:12px;color:var(--gold);flex:1">▶ ${esc(label)}</span><button class="btn btn-primary btn-xs" onclick="modalMarkEpSeen('${s.id}',${nx.si},${nx.ei})">✓ Vu</button></div>`; })()}
     <div id="seasons-tree-${s.id}">${seasonsTree(s)}</div>
   `;
@@ -2802,6 +2816,7 @@ function fmtAirdate(d) {
 
 function seasonsTree(s) {
   if(!s.seasons||s.seasons.length===0) return '<div style="color:var(--text-dim);font-size:13px">Aucune saison configurée.</div>';
+  const selMode = window._epSelectMode === s.id;
   return s.seasons.map((season,si)=>{
     const key = `${s.id}-${si}`;
     const isOpen = _openSeasons.has(key);
@@ -2809,18 +2824,22 @@ function seasonsTree(s) {
     const pct=total?Math.round(seen/total*100):0;
     const yearLabel=seasonYearLabel(season);
     const hasDetails=season.episodes.some(e=>e.title||e.airdate);
+    const epClick = (ei) => selMode ? `toggleEpSelection('${s.id}',${si},${ei})` : `toggleEp('${s.id}',${si},${ei})`;
+    const isSelected = (ei) => selMode && window._epSelection && window._epSelection.has(`${si}-${ei}`);
     const epsHTML = hasDetails
       ? season.episodes.map((ep,ei)=>{
           const label=ep.title?`E${ei+1} — ${ep.title}`:`Épisode ${ei+1}`;
           const dateStr=ep.airdate?fmtAirdate(ep.airdate):'';
-          return `<div class="ep-row ${ep.seen?'ep-row-seen':'ep-row-unseen'}" onclick="toggleEp('${s.id}',${si},${ei})" title="${ep.airdate?'Diffusé le '+fmtAirdate(ep.airdate):''}">
+          const selClass = isSelected(ei) ? ' ep-row-selected' : '';
+          return `<div class="ep-row ${ep.seen?'ep-row-seen':'ep-row-unseen'}${selClass}" onclick="${epClick(ei)}" title="${ep.airdate?'Diffusé le '+fmtAirdate(ep.airdate):''}">
             <span class="${ep.seen?'ep-seen-dot':'ep-unseen-dot'}"></span>
             <span class="ep-row-label">${esc(label)}</span>
             ${dateStr?`<span class="ep-row-date">${esc(dateStr)}</span>`:''}
+            ${selMode?`<span style="margin-left:auto;font-size:14px">${isSelected(ei)?'☑':'☐'}</span>`:''}
           </div>`;
         }).join('')
       : `<div class="ep-grid">${season.episodes.map((ep,ei)=>`
-          <button class="ep-btn ${ep.seen?'ep-seen':'ep-unseen'}" onclick="toggleEp('${s.id}',${si},${ei})" title="S${si+1}E${ei+1}">${ei+1}</button>
+          <button class="ep-btn ${ep.seen?'ep-seen':'ep-unseen'}${isSelected(ei)?' ep-btn-selected':''}" onclick="${epClick(ei)}" title="S${si+1}E${ei+1}">${ei+1}</button>
         `).join('')}</div>`;
     return `<div class="season-item">
       <div class="season-header" onclick="toggleSeasonEps('${s.id}',${si})" style="gap:8px">
@@ -2835,6 +2854,46 @@ function seasonsTree(s) {
       </div>
     </div>`;
   }).join('');
+}
+
+function toggleEpSelectMode(sid) {
+  if(window._epSelectMode === sid) {
+    // Exiting select mode without validating — just discard
+    window._epSelectMode = null;
+    window._epSelection = null;
+  } else {
+    window._epSelectMode = sid;
+    window._epSelection = new Set();
+  }
+  refreshSerieDetailModal(sid);
+}
+
+function toggleEpSelection(sid, si, ei) {
+  if(!window._epSelection) window._epSelection = new Set();
+  const key = `${si}-${ei}`;
+  if(window._epSelection.has(key)) window._epSelection.delete(key);
+  else window._epSelection.add(key);
+  refreshSerieDetailModal(sid);
+}
+
+function validateEpSelection(sid) {
+  const sel = window._epSelection;
+  if(!sel || sel.size === 0) { alert('Aucun épisode sélectionné.'); return; }
+  const s = DB.series.find(x=>x.id===sid); if(!s) return;
+  const today = confirm(`Marquer ${sel.size} épisode${sel.size>1?'s':''} comme vu${sel.size>1?'s':''} aujourd'hui ?\n\nOK = aujourd'hui (compté dans le bilan annuel)\nAnnuler = vus il y a plus longtemps (non comptés dans le bilan)`);
+  sel.forEach(key => {
+    const [si, ei] = key.split('-').map(Number);
+    const ep = s.seasons[si]?.episodes[ei];
+    if(!ep || ep.seen) return; // skip already-seen episodes
+    ep.seen = true;
+    if(today) logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
+  });
+  s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
+  saveDB();
+  window._epSelectMode = null;
+  window._epSelection = null;
+  refreshSerieDetailModal(sid);
+  updateSerieRowProgress(sid);
 }
 
 function toggleSerieAllSeen(sid) {
@@ -2887,7 +2946,8 @@ function toggleEp(sid,si,ei) {
   s.seasons[si].episodes[ei].seen = nowSeen;
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   if(nowSeen) {
-    logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
+    const today = confirm("Marquer cet épisode comme vu aujourd'hui ?\n\nOK = aujourd'hui (compté dans le bilan annuel)\nAnnuler = vu il y a plus longtemps (non compté dans le bilan)");
+    if(today) logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
   } else {
     unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
   }
@@ -3475,6 +3535,12 @@ function openWatchlistToFilmForm(w) {
     <div class="form-group"><label class="form-label">Pays *</label><div class="tag-input-wrap" id="fm-countries-wrap" onclick="document.getElementById('fm-countries-input').focus()"><input class="tag-input" id="fm-countries-input" placeholder="Ajouter un pays..."></div></div>
     <div class="form-group"><label class="form-label">Genre(s) <small style="color:var(--text-dim)">(optionnel)</small></label><div class="tag-input-wrap" id="fm-genres-wrap" onclick="document.getElementById('fm-genres-input').focus()"><input class="tag-input" id="fm-genres-input" placeholder="Ajouter..."></div></div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="fm-notes"></textarea></div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="fm-watched-today" checked>
+        Marquer comme vu aujourd'hui <small style="color:var(--text-dim)">(décochez si vu il y a plus longtemps — ne sera pas compté dans le bilan annuel)</small>
+      </label>
+    </div>
     <div class="form-group"><label class="form-label">Poster</label>
       <div style="display:flex;align-items:center;gap:12px">
         <div id="fm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px">🎬</div>
@@ -3498,7 +3564,8 @@ function openWatchlistToFilmForm(w) {
     const poster=window._capturedPoster||'';
     const newId = uid();
     DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
-    logWatch({type:'film', filmId:newId});
+    const watchedToday = document.getElementById('fm-watched-today');
+    if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:newId});
     window._wlPendingConvert = null;
     saveDB(); closeModal(); render('films');
   });
@@ -4832,7 +4899,7 @@ function discardEmptyPendingSaga(){
     window._pendingNewSagaId = null;
   }
 }
-function closeModal(){document.getElementById('modal-container').innerHTML=''; _openSeasons.clear();}
+function closeModal(){document.getElementById('modal-container').innerHTML=''; _openSeasons.clear(); window._epSelectMode=null; window._epSelection=null;}
 
 // ============================================================
 // TAG INPUT SYSTEM
