@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.6.0';
+const APP_VERSION = 'v3.6.1';
 
 function loadDB() {
   try {
@@ -2156,10 +2156,19 @@ function toggleDir(i) {
   if(row) { const open=row.style.display!=='none'; row.style.display=open?'none':''; icon.textContent=open?'▶':'▼'; }
 }
 function findNextEpisode(s) {
+  const today = new Date(); today.setHours(0,0,0,0);
   for(let si=0;si<(s.seasons||[]).length;si++){
     const season=s.seasons[si];
     for(let ei=0;ei<(season.episodes||[]).length;ei++){
-      if(!season.episodes[ei].seen) return {s:si+1,e:ei+1,si,ei};
+      const ep = season.episodes[ei];
+      if(ep.seen) continue;
+      // Skip episodes not yet aired (future airdate) — don't suggest them
+      // in "Continuer le visionnage" until their broadcast date.
+      if(ep.airdate) {
+        const airDate = new Date(ep.airdate);
+        if(!isNaN(airDate) && airDate > today) continue;
+      }
+      return {s:si+1,e:ei+1,si,ei};
     }
   }
   return null;
