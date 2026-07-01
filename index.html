@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.6.2';
+const APP_VERSION = 'v3.6.3';
 
 function loadDB() {
   try {
@@ -3278,6 +3278,12 @@ function openSerieForm(id) {
     const cleanSeasons = seasons.map(sn=>({
       name: sn.name||'',
       episodes: sn.episodes.map(ep=>({seen:ep.seen||false,title:ep.title||'',airdate:ep.airdate||''}))
+        .sort((a,b)=>{
+          if(!a.airdate && !b.airdate) return 0;
+          if(!a.airdate) return 1;
+          if(!b.airdate) return -1;
+          return new Date(a.airdate) - new Date(b.airdate);
+        })
     }));
     const poster=window._capturedPoster!==undefined?window._capturedPoster:(serie?.poster||'');
 
@@ -3784,7 +3790,13 @@ function openWatchlistToSerieForm(w) {
     if(totalEps===0){ missing.push('au moins un épisode'); valid=false; }
     if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const poster=window._capturedPoster||'';
-    const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))}));
+    const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))
+      .sort((a,b)=>{
+        if(!a.airdate && !b.airdate) return 0;
+        if(!a.airdate) return 1;
+        if(!b.airdate) return -1;
+        return new Date(a.airdate) - new Date(b.airdate);
+      })}));
     DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,poster,abandoned:false,lastInteracted:0,tmdbId});
     window._wlPendingConvert = null;
     saveDB(); closeModal(); render('series');
