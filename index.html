@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.6.3';
+const APP_VERSION = 'v3.6.4';
 
 function loadDB() {
   try {
@@ -2724,14 +2724,20 @@ async function refreshSerieFromTmdb(sid) {
     else if(data.status === 'Canceled') status = 'annulee';
     const tmdbSeasonList = (data.seasons||[]).filter(sn=>sn.season_number>0);
 
-    // Determine which seasons need fetching: new ones, or ones whose
-    // episode_count on TMDB differs from what we currently have stored.
+    // Determine which seasons need fetching: new ones, ones whose
+    // episode_count differs, or ones with missing/generic episode titles.
     const toFetch = [];
     tmdbSeasonList.forEach((tsn, idx) => {
       const local = s.seasons[idx];
       if(!local || (local.episodes||[]).length !== tsn.episode_count) {
         toFetch.push(tsn.season_number);
+        return;
       }
+      // Re-fetch if any episode has an empty or generic title ("Épisode N")
+      const hasGenericTitles = local.episodes.some((ep, ei) =>
+        !ep.title || /^[ée]pisode\s*\d+$/i.test(ep.title.trim())
+      );
+      if(hasGenericTitles) toFetch.push(tsn.season_number);
     });
 
     let addedSeasons = 0, addedEpisodes = 0;
