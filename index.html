@@ -2187,12 +2187,16 @@ function dashMarkEpSeen(sid, si, ei) {
   logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
   saveDB();
   // Save scroll position before re-render
-  const content = document.getElementById('content');
-  const scrollPos = content ? content.scrollTop : 0;
+  const contentEl = document.getElementById('content');
+  const scrollPos = contentEl ? contentEl.scrollTop : 0;
   render('dashboard');
-  // Restore scroll position and active tab
-  if(content) content.scrollTop = scrollPos;
   setDashMobileTab(activeDashTab);
+  // Restore scroll after browser has repainted
+  if(contentEl && scrollPos > 0) {
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; });
+    });
+  }
 }
 
 // ============================================================
