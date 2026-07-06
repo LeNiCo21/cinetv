@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.6.4';
+const APP_VERSION = 'v3.6.5';
 
 function loadDB() {
   try {
@@ -2186,8 +2186,12 @@ function dashMarkEpSeen(sid, si, ei) {
   _lastInteractedSerieId = sid;
   logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
   saveDB();
+  // Save scroll position before re-render
+  const content = document.getElementById('content');
+  const scrollPos = content ? content.scrollTop : 0;
   render('dashboard');
-  // Restore the active dashboard tab (films or series) that was open before
+  // Restore scroll position and active tab
+  if(content) content.scrollTop = scrollPos;
   setDashMobileTab(activeDashTab);
 }
 
