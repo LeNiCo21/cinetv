@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.4';
+const APP_VERSION = 'v3.7.5';
 
 function loadDB() {
   try {
@@ -516,11 +516,21 @@ async function tmdbSeriesDetails(id) {
 }
 async function tmdbSeasonDetails(tvId, seasonNumber) {
   const data = await tmdbFetch(`/tv/${tvId}/season/${seasonNumber}`);
+  const episodes = data.episodes||[];
+  // Check if any episode has no title — if so, fetch English version as fallback
+  const hasMissingTitles = episodes.some(ep => !ep.name);
+  let epEn = [];
+  if(hasMissingTitles) {
+    try {
+      const dataEn = await tmdbFetch(`/tv/${tvId}/season/${seasonNumber}`, {language:'en-US'});
+      epEn = dataEn.episodes||[];
+    } catch(e) { /* ignore, use fr titles only */ }
+  }
   return {
     name: (data.name && !/^Saison\s+\d+$|^Season\s+\d+$/i.test(data.name.trim())) ? data.name : '',
-    episodes: (data.episodes||[]).map(ep=>({
-      title: ep.name || '',
-      airdate: ep.air_date || '' // already YYYY-MM-DD, matches internal storage
+    episodes: episodes.map((ep,i)=>({
+      title: ep.name || (epEn[i] ? epEn[i].name : '') || '',
+      airdate: ep.air_date || ''
     }))
   };
 }
