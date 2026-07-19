@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.6';
+const APP_VERSION = 'v3.7.7';
 
 function loadDB() {
   try {
@@ -2333,9 +2333,9 @@ function deleteFilm(id) {
   if(!confirm('Supprimer ce film ?')) return;
   const film = DB.films.find(f=>f.id===id);
   DB.films = DB.films.filter(f=>f.id!==id);
+  // Remove all watchLog entries for this film
+  DB.watchLog = (DB.watchLog||[]).filter(e=>!(e.type==='film' && e.filmId===id));
   // If this film belongs to a saga, keep it there but mark it back as "non vu"
-  // instead of removing it from the saga entirely — the saga keeps its full
-  // film list, just with this entry reverted to unseen.
   (DB.sagas||[]).forEach(sg=>{
     const sf = (sg.films||[]).find(x=>x.id===id);
     if(sf && film) {
@@ -2983,7 +2983,10 @@ function toggleSerieAllSeen(sid) {
   const s=DB.series.find(x=>x.id===sid); if(!s) return;
   const seen=serieSeenEps(s), total=serieTotalEps(s);
   const markSeen = !(seen===total && total>0);
-  s.seasons.forEach(sn=>sn.episodes.forEach(ep=>ep.seen=markSeen));
+  s.seasons.forEach((sn,si)=>sn.episodes.forEach((ep,ei)=>{
+    if(!markSeen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
+    ep.seen=markSeen;
+  }));
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
   if(document.getElementById('serie-detail-body-'+sid)) refreshSerieDetailModal(sid);
@@ -3082,7 +3085,10 @@ function patchEpisodeUI(s, si, ei) {
 
 function markSerieAll(sid,seen) {
   const s=DB.series.find(x=>x.id===sid); if(!s) return;
-  s.seasons.forEach(sn=>sn.episodes.forEach(ep=>ep.seen=seen));
+  s.seasons.forEach((sn,si)=>sn.episodes.forEach((ep,ei)=>{
+    if(!seen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
+    ep.seen=seen;
+  }));
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
   refreshSerieDetailModal(sid);
@@ -3095,7 +3101,10 @@ function toggleSeasonAllSeen(sid, si) {
   const seen=season.episodes.filter(e=>e.seen).length;
   const total=season.episodes.length;
   const markSeen = !(seen===total && total>0);
-  season.episodes.forEach(ep=>ep.seen=markSeen);
+  season.episodes.forEach((ep,ei)=>{
+    if(!markSeen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
+    ep.seen=markSeen;
+  });
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
   refreshSerieDetailModal(sid);
@@ -3104,7 +3113,10 @@ function toggleSeasonAllSeen(sid, si) {
 
 function markSeasonAll(sid,si,seen) {
   const s=DB.series.find(x=>x.id===sid); if(!s) return;
-  s.seasons[si].episodes.forEach(ep=>ep.seen=seen);
+  s.seasons[si].episodes.forEach((ep,ei)=>{
+    if(!seen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
+    ep.seen=seen;
+  });
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
   refreshSerieDetailModal(sid);
@@ -4429,6 +4441,7 @@ function importPage(el) {
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="exportDB()">📤 Exporter (JSON)</button>
       <button class="btn btn-secondary" onclick="document.getElementById('import-json').click()">📥 Restaurer depuis JSON<input type="file" id="import-json" accept=".json" style="display:none" onchange="restoreDB(this)"></button>
+      <button class="btn btn-secondary" onclick="cleanWatchLog()">🧹 Nettoyer le watchLog</button>
       <button class="btn btn-danger" onclick="clearDB()">🗑 Effacer toutes les données</button>
     </div>
   </div>
@@ -4687,6 +4700,26 @@ async function exportDB(){
   a.click();
 }
 function restoreDB(input){if(!input.files[0]) return;if(!confirm('Remplacer toutes les données ?')) return;const r=new FileReader();r.onload=e=>{try{DB=JSON.parse(e.target.result);saveDB();alert('Données restaurées.');render('dashboard');}catch(ex){alert('Fichier invalide.');}};r.readAsText(input.files[0]);}
+function cleanWatchLog(){
+  if(!confirm('Nettoyer le watchLog ?\n\nCela supprimera toutes les entrées correspondant à des épisodes ou films actuellement marqués comme "non vu" ou supprimés. Cette action est irréversible.')) return;
+  const before = (DB.watchLog||[]).length;
+  DB.watchLog = (DB.watchLog||[]).filter(e=>{
+    if(e.type==='film') {
+      return DB.films.some(f=>f.id===e.filmId);
+    }
+    if(e.type==='episode') {
+      const s = DB.series.find(x=>x.id===e.serieId);
+      if(!s) return false;
+      const ep = s.seasons[e.seasonIndex]?.episodes[e.episodeIndex];
+      return ep && ep.seen;
+    }
+    return true;
+  });
+  const removed = before - DB.watchLog.length;
+  saveDB();
+  alert('Nettoyage terminé : ' + removed + ' entrée' + (removed>1?'s':'') + ' supprimée' + (removed>1?'s':'') + '.');
+}
+
 function clearDB(){if(!confirm('Effacer définitivement toutes les données ?')) return;DB={films:[],series:[],watchlist:[],sagas:[],watchLog:[],wrappeds:[]};saveDB();render('import');}
 
 // ============================================================
