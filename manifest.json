@@ -1,5 +1,6 @@
 {
   "name": "CinéTV",
+  "version": "3.7.0",
   "short_name": "CinéTV",
   "description": "Votre cinémathèque personnelle — films, séries, sagas et bilans annuels",
   "start_url": "./index.html",
