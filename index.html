@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.6.5';
+const APP_VERSION = 'v3.7.0';
 
 function loadDB() {
   try {
@@ -1174,6 +1174,29 @@ function buildWrappedData(year) {
   // Sagas étalées (commencées et non finies = étalées sur plusieurs sessions)
   const sagasSpread = sagasStartedNotCompleted ? sagasStartedNotCompleted.length : 0;
 
+  // Premier et dernier visionnage de l'année
+  const allEntries = [...filmEntries, ...epEntries].sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const firstEntry = allEntries[0] || null;
+  const lastEntry = allEntries[allEntries.length-1] || null;
+  const firstWatch = firstEntry ? {
+    date: firstEntry.date,
+    title: firstEntry.type==='film' ? firstEntry.film.title : (firstEntry.r.serie.title + ' S'+(firstEntry.seasonIndex+1)+'E'+(firstEntry.episodeIndex+1)),
+    type: firstEntry.type
+  } : null;
+  const lastWatch = lastEntry ? {
+    date: lastEntry.date,
+    title: lastEntry.type==='film' ? lastEntry.film.title : (lastEntry.r.serie.title + ' S'+(lastEntry.seasonIndex+1)+'E'+(lastEntry.episodeIndex+1)),
+    type: lastEntry.type
+  } : null;
+
+  // Plateformes les plus utilisées cette année (séries vues)
+  const platformCount = {};
+  seriesWatched.forEach(s => parseNames(s.platforms).forEach(p => {
+    if(p) platformCount[p] = (platformCount[p]||0) + (epBySerie[s.id] ? epBySerie[s.id].length : 1);
+  }));
+  const topPlatforms = Object.entries(platformCount).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const dominantPlatform = topPlatforms.length ? topPlatforms[0][0] : null;
+
   return {
     year, prevYearHasData,
     // section 2
@@ -1205,6 +1228,8 @@ function buildWrappedData(year) {
     seasonDominant, monthDominantGenre,
     completionRate, recentFilmPct, oldestFilm, newestFilm,
     endYearAcceleration, sagasSpread,
+    // section 11 — premier/dernier + plateformes
+    firstWatch, lastWatch, topPlatforms, dominantPlatform,
     // section 12
     comparison, genreUp, genreDown
   };
@@ -2741,24 +2766,30 @@ async function refreshSerieFromTmdb(sid) {
         toFetch.push(tsn.season_number);
         return;
       }
-      // Re-fetch if any episode has an empty or generic title ("Épisode N")
+      // Re-fetch if any episode has an empty or generic title ("Épisode N", "Episode N", etc.)
       const hasGenericTitles = local.episodes.some((ep, ei) =>
-        !ep.title || /^[ée]pisode\s*\d+$/i.test(ep.title.trim())
+        !ep.title || /^[ée]pisode\s*\d+$/i.test(ep.title.trim()) || /^episode\s*\d+$/i.test(ep.title.trim())
       );
       if(hasGenericTitles) toFetch.push(tsn.season_number);
     });
 
-    let addedSeasons = 0, addedEpisodes = 0;
+    let addedSeasons = 0, addedEpisodes = 0, updatedTitles = 0;
     if(toFetch.length) {
       for(const seasonNum of toFetch) {
         const sd = await tmdbSeasonDetails(s.tmdbId, seasonNum);
         const idx = seasonNum - 1;
         const existing = s.seasons[idx];
-        const newEpisodes = sd.episodes.map((ep,ei)=>({
-          seen: existing && existing.episodes[ei] ? existing.episodes[ei].seen : false,
-          title: ep.title,
-          airdate: ep.airdate
-        }));
+        const newEpisodes = sd.episodes.map((ep,ei)=>{
+          const existingEp = existing && existing.episodes[ei];
+          const oldTitle = existingEp ? existingEp.title : '';
+          const newTitle = ep.title || oldTitle;
+          if(existingEp && newTitle && newTitle !== oldTitle) updatedTitles++;
+          return {
+            seen: existingEp ? existingEp.seen : false,
+            title: newTitle,
+            airdate: ep.airdate || (existingEp ? existingEp.airdate : '')
+          };
+        });
         if(!existing) { addedSeasons++; addedEpisodes += newEpisodes.length; }
         else if(newEpisodes.length > existing.episodes.length) { addedEpisodes += (newEpisodes.length - existing.episodes.length); }
         s.seasons[idx] = { name: sd.name, episodes: newEpisodes };
@@ -2771,8 +2802,12 @@ async function refreshSerieFromTmdb(sid) {
     s.status = status || s.status;
     saveDB();
 
-    if(addedSeasons || addedEpisodes) {
-      alert(`Série mise à jour : ${addedSeasons ? addedSeasons+' nouvelle(s) saison(s)' : ''}${addedSeasons&&addedEpisodes?', ':''}${addedEpisodes ? addedEpisodes+' nouvel(aux) épisode(s)' : ''}.`);
+    if(addedSeasons || addedEpisodes || updatedTitles) {
+      const parts = [];
+      if(addedSeasons) parts.push(addedSeasons+' nouvelle(s) saison(s)');
+      if(addedEpisodes) parts.push(addedEpisodes+' nouvel(aux) épisode(s)');
+      if(updatedTitles) parts.push(updatedTitles+' titre(s) d\'épisode mis à jour');
+      alert('Série mise à jour : '+parts.join(', ')+'.');
     } else {
       alert('Série déjà à jour — aucune nouveauté détectée sur TMDB.');
     }
@@ -4128,6 +4163,47 @@ function buildWrappedSlides(d, narrative) {
     }).join('');
     const freqHTML = '<div style="display:flex;gap:2px;align-items:flex-end;padding:8px 0">' + bars + '</div>';
     slides.push(wrappedSection('📈 Fréquence mensuelle', freqHTML));
+  }
+
+  // ---- 5b bis) Premier & dernier visionnage ----
+  if(d.firstWatch && d.lastWatch) {
+    const fmtDate = (dateStr) => {
+      const d2 = new Date(dateStr);
+      return isNaN(d2) ? dateStr : d2.toLocaleDateString('fr-FR', {day:'numeric', month:'long'});
+    };
+    const firstIcon = d.firstWatch.type==='film' ? '🎬' : '📺';
+    const lastIcon = d.lastWatch.type==='film' ? '🎬' : '📺';
+    let firstLastHTML = `<div style="display:flex;flex-direction:column;gap:12px">
+      <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold-dim);border-radius:6px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🎬 Premier visionnage de l'année</div>
+        <div style="font-size:15px;font-weight:600">${firstIcon} ${esc(d.firstWatch.title)}</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${fmtDate(d.firstWatch.date)}</div>
+      </div>
+      <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid var(--gold);border-radius:6px">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🏁 Dernier visionnage de l'année</div>
+        <div style="font-size:15px;font-weight:600">${lastIcon} ${esc(d.lastWatch.title)}</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${fmtDate(d.lastWatch.date)}</div>
+      </div>
+    </div>`;
+    slides.push(wrappedSection('📅 Premier & dernier', firstLastHTML));
+  }
+
+  // ---- 5c bis) Plateformes ----
+  if(d.topPlatforms && d.topPlatforms.length) {
+    const maxPl = d.topPlatforms[0][1];
+    let platHTML = `<div style="flex-direction:column;gap:10px;display:flex">`;
+    d.topPlatforms.forEach(([pl, count]) => {
+      const pct = Math.round(count/maxPl*100);
+      platHTML += `<div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">
+          <span style="font-weight:${pl===d.dominantPlatform?'600':'400'};color:${pl===d.dominantPlatform?'var(--gold)':'var(--text)'}">${esc(pl)}</span>
+          <span style="color:var(--text-dim)">${count} ép.</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
+      </div>`;
+    });
+    platHTML += `</div>`;
+    slides.push(wrappedSection('📡 Plateformes', platHTML));
   }
 
   // ---- 5c) Exploration géographique ----
