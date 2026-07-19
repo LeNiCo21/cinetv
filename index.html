@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.0';
+const APP_VERSION = 'v3.7.3';
 
 function loadDB() {
   try {
@@ -384,8 +384,18 @@ function serieSeenEps(s) {
 function serieTotalEps(s) {
   let t=0; (s.seasons||[]).forEach(sn=>{t+=(sn.episodes||[]).length;}); return t;
 }
-function serieSeenMin(s) { return serieSeenEps(s)*(s.episodeDuration||0); }
-function serieTotalMin(s) { return serieTotalEps(s)*(s.episodeDuration||0); }
+function serieSeenMin(s) {
+  return (s.seasons||[]).reduce((total, sn, si) => {
+    const dur = sn.episodeDuration || s.episodeDuration || 0;
+    return total + sn.episodes.filter(e=>e.seen).length * dur;
+  }, 0);
+}
+function serieTotalMin(s) {
+  return (s.seasons||[]).reduce((total, sn) => {
+    const dur = sn.episodeDuration || s.episodeDuration || 0;
+    return total + sn.episodes.length * dur;
+  }, 0);
+}
 
 function knownPlatforms() {
   const set = new Set();
@@ -882,7 +892,7 @@ function resolveEpisodeEntry(e) {
   const season = s.seasons && s.seasons[e.seasonIndex];
   const ep = season && season.episodes && season.episodes[e.episodeIndex];
   if(!ep) return null;
-  return { serie:s, season, ep, duration: s.episodeDuration||0 };
+  return { serie:s, season, ep, duration: season.episodeDuration || s.episodeDuration || 0 };
 }
 function resolveFilmEntry(e) {
   const f = DB.films.find(x=>x.id===e.filmId);
@@ -2782,6 +2792,7 @@ async function refreshSerieFromTmdb(sid) {
         const newEpisodes = sd.episodes.map((ep,ei)=>{
           const existingEp = existing && existing.episodes[ei];
           const oldTitle = existingEp ? existingEp.title : '';
+          // TMDB title takes priority (official); keep existing only if TMDB has nothing.
           const newTitle = ep.title || oldTitle;
           if(existingEp && newTitle && newTitle !== oldTitle) updatedTitles++;
           return {
@@ -3168,6 +3179,10 @@ function openSerieForm(id) {
             <label class="form-label" style="margin-bottom:4px">Nb épisodes</label>
             <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" value="${season.episodes.length}" onchange="resizeSeason(${si},this.value)">
           </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px">Durée/ép. (min) <small style="color:var(--text-dim)">(optionnel)</small></label>
+            <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Global" value="${esc(season.episodeDuration||'')}" oninput="setSeasonEpDuration(${si},this.value)">
+          </div>
         </div>
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">(vus : ${season.episodes.filter(e=>e.seen).length})</div>
         <button class="btn btn-secondary btn-xs" onclick="toggleEpDetails(${si})">
@@ -3199,6 +3214,7 @@ function openSerieForm(id) {
   window.toggleEpDetails=(si)=>{ seasons[si]._showDetails=!seasons[si]._showDetails; renderSeasonsEditor(); };
   window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
   window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
+  window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
   window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
   window.resizeSeason=(si,n)=>{
@@ -3326,6 +3342,7 @@ function openSerieForm(id) {
 
     const cleanSeasons = seasons.map(sn=>({
       name: sn.name||'',
+      episodeDuration: sn.episodeDuration || null,
       episodes: sn.episodes.map(ep=>({seen:ep.seen||false,title:ep.title||'',airdate:ep.airdate||''}))
         .sort((a,b)=>{
           if(!a.airdate && !b.airdate) return 0;
@@ -3704,6 +3721,10 @@ function openWatchlistToSerieForm(w) {
             <label class="form-label" style="margin-bottom:4px">Nb épisodes</label>
             <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" value="${season.episodes.length}" onchange="resizeSeason(${si},this.value)">
           </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px">Durée/ép. (min) <small style="color:var(--text-dim)">(optionnel)</small></label>
+            <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Global" value="${esc(season.episodeDuration||'')}" oninput="setSeasonEpDuration(${si},this.value)">
+          </div>
         </div>
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">(vus : ${season.episodes.filter(e=>e.seen).length})</div>
         <button class="btn btn-secondary btn-xs" onclick="toggleEpDetails(${si})">
@@ -3735,6 +3756,7 @@ function openWatchlistToSerieForm(w) {
   window.toggleEpDetails=(si)=>{ seasons[si]._showDetails=!seasons[si]._showDetails; renderSeasonsEditor(); };
   window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
   window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
+  window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
   window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
   window.resizeSeason=(si,n)=>{
@@ -3839,7 +3861,7 @@ function openWatchlistToSerieForm(w) {
     if(totalEps===0){ missing.push('au moins un épisode'); valid=false; }
     if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const poster=window._capturedPoster||'';
-    const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))
+    const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodeDuration:sn.episodeDuration||null, episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))
       .sort((a,b)=>{
         if(!a.airdate && !b.airdate) return 0;
         if(!a.airdate) return 1;
