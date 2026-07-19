@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.7';
+const APP_VERSION = 'v3.7.8';
 
 function loadDB() {
   try {
@@ -378,6 +378,8 @@ function parseNames(v) {
 function joinNames(arr) { return (arr||[]).join(', '); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// Progress stats — used for the % display, "continuer le visionnage", serie detail header
+// Specials are NOT counted here: watching all regular seasons = 100%
 function serieSeenEps(s) {
   let t=0; (s.seasons||[]).forEach(sn=>(sn.episodes||[]).forEach(ep=>{if(ep.seen)t++;})); return t;
 }
@@ -385,16 +387,35 @@ function serieTotalEps(s) {
   let t=0; (s.seasons||[]).forEach(sn=>{t+=(sn.episodes||[]).length;}); return t;
 }
 function serieSeenMin(s) {
-  return (s.seasons||[]).reduce((total, sn, si) => {
+  return (s.seasons||[]).reduce((sum, sn) => {
     const dur = sn.episodeDuration || s.episodeDuration || 0;
-    return total + sn.episodes.filter(e=>e.seen).length * dur;
+    return sum + sn.episodes.filter(e=>e.seen).length * dur;
   }, 0);
 }
 function serieTotalMin(s) {
-  return (s.seasons||[]).reduce((total, sn) => {
+  return (s.seasons||[]).reduce((sum, sn) => {
     const dur = sn.episodeDuration || s.episodeDuration || 0;
-    return total + sn.episodes.length * dur;
+    return sum + sn.episodes.length * dur;
   }, 0);
+}
+
+// Global stats — used for dashboard totals and bilan annuel
+// Specials ARE counted here
+function serieSeenEpsAll(s) {
+  return serieSeenEps(s) + (s.specials||[]).filter(e=>e.seen).length;
+}
+function serieTotalEpsAll(s) {
+  return serieTotalEps(s) + (s.specials||[]).length;
+}
+function serieSeenMinAll(s) {
+  let total = serieSeenMin(s);
+  (s.specials||[]).forEach(ep=>{ if(ep.seen) total += ep.duration || s.episodeDuration || 0; });
+  return total;
+}
+function serieTotalMinAll(s) {
+  let total = serieTotalMin(s);
+  (s.specials||[]).forEach(ep=>{ total += ep.duration || s.episodeDuration || 0; });
+  return total;
 }
 
 function knownPlatforms() {
@@ -901,6 +922,12 @@ function watchLogForYear(year) {
 function resolveEpisodeEntry(e) {
   const s = DB.series.find(x=>x.id===e.serieId);
   if(!s) return null;
+  // Special episodes use seasonIndex=-1
+  if(e.seasonIndex === -1) {
+    const ep = s.specials && s.specials[e.episodeIndex];
+    if(!ep) return null;
+    return { serie:s, season:null, ep, duration: ep.duration || s.episodeDuration || 0 };
+  }
   const season = s.seasons && s.seasons[e.seasonIndex];
   const ep = season && season.episodes && season.episodes[e.episodeIndex];
   if(!ep) return null;
@@ -1048,7 +1075,7 @@ function buildWrappedData(year) {
   // Completed this year: serie reached 100% and its last episode's watch-log entry falls in this year
   const seriesCompleted = seriesWatchedIds.map(id=>DB.series.find(s=>s.id===id)).filter(s=>{
     if(!s) return false;
-    const total = serieTotalEps(s), seen = serieSeenEps(s);
+    const total = serieTotalEpsAll(s), seen = serieSeenEpsAll(s);
     if(total===0 || seen<total) return false;
     // find the last logged episode for this serie this year
     const entries = epBySerie[s.id];
@@ -1057,7 +1084,7 @@ function buildWrappedData(year) {
   // Abandoned this year: series marked abandoned, with at least one episode logged this year (best-effort,
   // since we don't timestamp the abandon action itself)
   const seriesAbandonedCount = DB.series.filter(s=>s.abandoned && epBySerie[s.id]).length;
-  const avgSeriesLength = seriesWatched.length ? Math.round(seriesWatched.reduce((a,s)=>a+serieTotalEps(s),0)/seriesWatched.length) : 0;
+  const avgSeriesLength = seriesWatched.length ? Math.round(seriesWatched.reduce((a,s)=>a+serieTotalEpsAll(s),0)/seriesWatched.length) : 0;
 
   // ---- 8) Sagas ----
   const sagaActivity = {}; // sagaId -> {filmsWatchedThisYear:[], total, label}
@@ -1762,8 +1789,8 @@ function dashboard(el, actions) {
   const yearsSorted = Object.entries(filmsByYear).sort((a,b)=>parseInt(b[0])-parseInt(a[0]));
   const decadesSorted = Object.entries(filmsByDecade).sort((a,b)=>b[1]-a[1]);
 
-  const totalSeriesEps = allSeries.reduce((a,s)=>a+serieSeenEps(s),0);
-  const totalSeriesMin = allSeries.reduce((a,s)=>a+serieSeenMin(s),0);
+  const totalSeriesEps = allSeries.reduce((a,s)=>a+serieSeenEpsAll(s),0);
+  const totalSeriesMin = allSeries.reduce((a,s)=>a+serieSeenMinAll(s),0);
   const seriesByCountry = {};
   allSeries.forEach(s=>parseNames(s.countries).forEach(c=>{ seriesByCountry[c]=(seriesByCountry[c]||0)+1; }));
   const seriesByGenre = {};
@@ -1778,8 +1805,8 @@ function dashboard(el, actions) {
   Object.values(seriesByCreatorObj).forEach(arr=>arr.sort((a,b)=>(parseInt(a.years)||0)-(parseInt(b.years)||0)));
   const creatorsSorted = Object.entries(seriesByCreatorObj).sort((a,b)=>b[1].length-a[1].length).slice(0,20);
 
-  const top10eps = [...allSeries].sort((a,b)=>serieSeenEps(b)-serieSeenEps(a)).slice(0,10);
-  const top10dur = [...allSeries].sort((a,b)=>serieSeenMin(b)-serieSeenMin(a)).slice(0,10);
+  const top10eps = [...allSeries].sort((a,b)=>serieSeenEpsAll(b)-serieSeenEpsAll(a)).slice(0,10);
+  const top10dur = [...allSeries].sort((a,b)=>serieSeenMinAll(b)-serieSeenMinAll(a)).slice(0,10);
 
   let inProgress = allSeries.filter(s=>!s.abandoned).filter(s=>{
     const seen=serieSeenEps(s), total=serieTotalEps(s);
@@ -2936,7 +2963,42 @@ function seasonsTree(s) {
         ${epsHTML}
       </div>
     </div>`;
+  }).join('') + specialsTreeSection(s, selMode);
+}
+
+function specialsTreeSection(s, selMode) {
+  const specials = s.specials||[];
+  if(specials.length === 0) return '';
+  const key = `${s.id}-specials`;
+  const isOpen = _openSeasons.has(key);
+  const seen = specials.filter(e=>e.seen).length;
+  const total = specials.length;
+  const pct = total ? Math.round(seen/total*100) : 0;
+  const epsHTML = specials.map((ep,ei)=>{
+    const selClass = selMode && window._epSelection && window._epSelection.has(`specials-${ei}`) ? ' ep-row-selected' : '';
+    const clickFn = selMode ? `toggleSpecialSelection('${s.id}',${ei})` : `toggleSpecial('${s.id}',${ei})`;
+    const dateStr = ep.airdate ? fmtAirdate(ep.airdate) : '';
+    const label = ep.title || `Spécial ${ei+1}`;
+    return `<div class="ep-row ${ep.seen?'ep-row-seen':'ep-row-unseen'}${selClass}" onclick="${clickFn}">
+      <span class="${ep.seen?'ep-seen-dot':'ep-unseen-dot'}"></span>
+      <span class="ep-row-label">${esc(label)}</span>
+      ${ep.duration?`<span class="ep-row-date" style="color:var(--text-dim)">${ep.duration} min</span>`:''}
+      ${dateStr?`<span class="ep-row-date">${esc(dateStr)}</span>`:''}
+      ${selMode?`<span style="margin-left:auto;font-size:14px">${(window._epSelection&&window._epSelection.has('specials-'+ei))?'☑':'☐'}</span>`:''}
+    </div>`;
   }).join('');
+  return `<div class="season-item">
+    <div class="season-header" onclick="toggleSeasonEps('${s.id}','specials')" style="gap:8px">
+      <span style="flex:1">⭐ Épisodes spéciaux <span style="color:var(--text-dim);font-size:12px">(${seen}/${total} — ${pct}%)</span></span>
+      <div onclick="event.stopPropagation()" style="flex-shrink:0">
+        <button class="btn ${seen===total&&total>0?'btn-secondary':'btn-green'} btn-xs" onclick="toggleSpecialsAllSeen('${s.id}')" title="${seen===total&&total>0?'Tout non vu':'Tout vu'}">${seen===total&&total>0?'✗':'✓'}</button>
+      </div>
+      <span id="sicon-${s.id}-specials">${isOpen?'▼':'▶'}</span>
+    </div>
+    <div id="season-eps-${s.id}-specials" style="display:${isOpen?'block':'none'}">
+      ${epsHTML}
+    </div>
+  </div>`;
 }
 
 function toggleEpSelectMode(sid) {
@@ -2965,11 +3027,19 @@ function validateEpSelection(sid) {
   const s = DB.series.find(x=>x.id===sid); if(!s) return;
   const today = confirm(`Marquer ${sel.size} épisode${sel.size>1?'s':''} comme vu${sel.size>1?'s':''} aujourd'hui ?\n\nOK = aujourd'hui (compté dans le bilan annuel)\nAnnuler = vus il y a plus longtemps (non comptés dans le bilan)`);
   sel.forEach(key => {
-    const [si, ei] = key.split('-').map(Number);
-    const ep = s.seasons[si]?.episodes[ei];
-    if(!ep || ep.seen) return; // skip already-seen episodes
-    ep.seen = true;
-    if(today) logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
+    if(key.startsWith('specials-')) {
+      const ei = parseInt(key.split('-')[1]);
+      const ep = s.specials && s.specials[ei];
+      if(!ep || ep.seen) return;
+      ep.seen = true;
+      if(today) logWatch({type:'episode', serieId:sid, seasonIndex:-1, episodeIndex:ei});
+    } else {
+      const [si, ei] = key.split('-').map(Number);
+      const ep = s.seasons[si]?.episodes[ei];
+      if(!ep || ep.seen) return;
+      ep.seen = true;
+      if(today) logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
+    }
   });
   s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
   saveDB();
@@ -3000,6 +3070,48 @@ function toggleSerieAllSeen(sid) {
     btn.title=newSeen===newTotal&&newTotal>0?'Tout non vu':'Tout vu';
     btn.textContent=newSeen===newTotal&&newTotal>0?'✗':'✓';
   }
+}
+
+function toggleSpecial(sid, ei) {
+  const s = DB.series.find(x=>x.id===sid); if(!s) return;
+  if(!s.specials) s.specials = [];
+  const ep = s.specials[ei]; if(!ep) return;
+  const nowSeen = !ep.seen;
+  ep.seen = nowSeen;
+  s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
+  if(nowSeen) {
+    const today = confirm("Marquer cet épisode spécial comme vu aujourd'hui ?\n\nOK = aujourd'hui (compté dans le bilan annuel)\nAnnuler = vu il y a plus longtemps (non compté dans le bilan)");
+    if(today) logWatch({type:'episode', serieId:sid, seasonIndex:-1, episodeIndex:ei});
+  } else {
+    unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===-1 && e.episodeIndex===ei);
+  }
+  saveDB();
+  patchSerieDetailHeader(sid);
+  updateSerieRowProgress(sid);
+  refreshSerieDetailModal(sid);
+}
+
+function toggleSpecialsAllSeen(sid) {
+  const s = DB.series.find(x=>x.id===sid); if(!s||!s.specials) return;
+  const seen = s.specials.filter(e=>e.seen).length;
+  const total = s.specials.length;
+  const markSeen = !(seen===total && total>0);
+  s.specials.forEach((ep,ei)=>{
+    if(!markSeen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===-1 && e.episodeIndex===ei);
+    ep.seen = markSeen;
+  });
+  s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
+  saveDB();
+  refreshSerieDetailModal(sid);
+  updateSerieRowProgress(sid);
+}
+
+function toggleSpecialSelection(sid, ei) {
+  if(!window._epSelection) window._epSelection = new Set();
+  const key = `specials-${ei}`;
+  if(window._epSelection.has(key)) window._epSelection.delete(key);
+  else window._epSelection.add(key);
+  refreshSerieDetailModal(sid);
 }
 
 function toggleSeasonEps(sid,si) {
@@ -3166,6 +3278,7 @@ function openSerieForm(id) {
   const genres = serie ? parseNames(serie.genres) : [];
   let tmdbId = serie ? (serie.tmdbId||null) : null;
   let seasons = serie ? JSON.parse(JSON.stringify(serie.seasons||[])) : [];
+  let specials = serie ? JSON.parse(JSON.stringify(serie.specials||[])) : [];
 
   function addWeek(dateStr) {
     const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -3241,6 +3354,23 @@ function openSerieForm(id) {
   window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
   window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
+
+  function renderSpecialsEditor() {
+    const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
+    wrap.innerHTML = specials.map((sp,i)=>`
+      <div style="display:grid;grid-template-columns:1fr 80px 80px 28px;gap:6px;align-items:center;margin-bottom:6px">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(sp.title||'')}" oninput="setSpecialField(${i},'title',this.value)">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Durée (min)" type="number" value="${sp.duration||''}" oninput="setSpecialField(${i},'duration',this.value?parseInt(this.value):null)">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="JJ-MM-AAAA" value="${esc(isoToDisplay(sp.airdate))}" onchange="setSpecialDate(${i},this.value)">
+        <button class="btn btn-danger btn-xs" onclick="removeSpecial(${i})">✕</button>
+      </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">Aucun épisode spécial.</div>';
+  }
+  window.addSpecial = ()=>{ specials.push({seen:false,title:'',airdate:'',duration:null}); renderSpecialsEditor(); };
+  window.removeSpecial = (i)=>{ specials.splice(i,1); renderSpecialsEditor(); };
+  window.setSpecialField = (i,k,v)=>{ specials[i][k]=v; };
+  window.setSpecialDate = (i,v)=>{ specials[i].airdate = displayToIso(v)||''; };
+  renderSpecialsEditor();
+
   window.resizeSeason=(si,n)=>{
     n=Math.max(1,parseInt(n)||1);
     const cur=seasons[si].episodes;
@@ -3337,6 +3467,11 @@ function openSerieForm(id) {
     <div class="form-group"><label class="form-label">Durée moy. épisode (min) *</label><input class="form-input" id="sm-dur" type="number" value="${esc(serie?.episodeDuration||'')}"></div>
     <div class="form-group"><label class="form-label">Saisons & Épisodes *</label><div id="fm-seasons-editor"></div></div>
     <div class="form-group">
+      <label class="form-label">⭐ Épisodes spéciaux <small style="color:var(--text-dim)">(optionnel — triés par date)</small></label>
+      <div id="fm-specials-editor"></div>
+      <button class="btn btn-secondary btn-sm" onclick="addSpecial()" style="margin-top:6px">＋ Ajouter un épisode spécial</button>
+    </div>
+    <div class="form-group">
       <label class="form-label">Poster</label>
       <div style="display:flex;align-items:center;gap:12px">
         <div id="sm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">
@@ -3382,9 +3517,13 @@ function openSerieForm(id) {
         const oldSn=serie.seasons&&serie.seasons[si];
         if(oldSn) newSn.episodes.forEach((ep,ei)=>{ if(oldSn.episodes[ei]){ ep.seen=oldSn.episodes[ei].seen; } });
       });
-      Object.assign(serie,{title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,poster});
+      const cleanSpecials = specials.map(sp=>({seen:sp.seen||false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
+        .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
+      Object.assign(serie,{title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster});
     } else {
-      DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,poster,abandoned:false,lastInteracted:0});
+      const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
+        .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
+      DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster,abandoned:false,lastInteracted:0});
     }
     saveDB(); closeModal();
     const originSerieId = window._serieDetailOrigin || null;
@@ -3707,6 +3846,7 @@ function openWatchlistToSerieForm(w) {
   const platforms=parseNames(w.platforms||w.platform||[]);
   const genres=[];
   let seasons=[];
+  let specials=[];
 
 
   function addWeek(dateStr) {
@@ -3783,6 +3923,23 @@ function openWatchlistToSerieForm(w) {
   window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
   window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
+
+  function renderSpecialsEditor() {
+    const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
+    wrap.innerHTML = specials.map((sp,i)=>`
+      <div style="display:grid;grid-template-columns:1fr 80px 80px 28px;gap:6px;align-items:center;margin-bottom:6px">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(sp.title||'')}" oninput="setSpecialField(${i},'title',this.value)">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Durée (min)" type="number" value="${sp.duration||''}" oninput="setSpecialField(${i},'duration',this.value?parseInt(this.value):null)">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="JJ-MM-AAAA" value="${esc(isoToDisplay(sp.airdate))}" onchange="setSpecialDate(${i},this.value)">
+        <button class="btn btn-danger btn-xs" onclick="removeSpecial(${i})">✕</button>
+      </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">Aucun épisode spécial.</div>';
+  }
+  window.addSpecial = ()=>{ specials.push({seen:false,title:'',airdate:'',duration:null}); renderSpecialsEditor(); };
+  window.removeSpecial = (i)=>{ specials.splice(i,1); renderSpecialsEditor(); };
+  window.setSpecialField = (i,k,v)=>{ specials[i][k]=v; };
+  window.setSpecialDate = (i,v)=>{ specials[i].airdate = displayToIso(v)||''; };
+  renderSpecialsEditor();
+
   window.resizeSeason=(si,n)=>{
     n=Math.max(1,parseInt(n)||1);
     const cur=seasons[si].episodes;
@@ -3860,6 +4017,11 @@ function openWatchlistToSerieForm(w) {
     <div class="form-group"><label class="form-label">Durée moy. épisode (min) *</label><input class="form-input" id="sm-dur" type="number"></div>
     <div class="form-group"><label class="form-label">Saisons & Épisodes *</label><div id="fm-seasons-editor"></div></div>
     <div class="form-group">
+      <label class="form-label">⭐ Épisodes spéciaux <small style="color:var(--text-dim)">(optionnel — triés par date)</small></label>
+      <div id="fm-specials-editor"></div>
+      <button class="btn btn-secondary btn-sm" onclick="addSpecial()" style="margin-top:6px">＋ Ajouter un épisode spécial</button>
+    </div>
+    <div class="form-group">
       <label class="form-label">Poster</label>
       <div style="display:flex;align-items:center;gap:12px">
         <div id="sm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">🎬</div>
@@ -3892,7 +4054,9 @@ function openWatchlistToSerieForm(w) {
         if(!b.airdate) return -1;
         return new Date(a.airdate) - new Date(b.airdate);
       })}));
-    DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,poster,abandoned:false,lastInteracted:0,tmdbId});
+    const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
+      .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
+    DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster,abandoned:false,lastInteracted:0,tmdbId});
     window._wlPendingConvert = null;
     saveDB(); closeModal(); render('series');
   });
@@ -4710,6 +4874,10 @@ function cleanWatchLog(){
     if(e.type==='episode') {
       const s = DB.series.find(x=>x.id===e.serieId);
       if(!s) return false;
+      if(e.seasonIndex === -1) {
+        const ep = s.specials && s.specials[e.episodeIndex];
+        return ep && ep.seen;
+      }
       const ep = s.seasons[e.seasonIndex]?.episodes[e.episodeIndex];
       return ep && ep.seen;
     }
