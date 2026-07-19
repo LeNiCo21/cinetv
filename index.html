@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.3';
+const APP_VERSION = 'v3.7.4';
 
 function loadDB() {
   try {
@@ -2803,7 +2803,7 @@ async function refreshSerieFromTmdb(sid) {
         });
         if(!existing) { addedSeasons++; addedEpisodes += newEpisodes.length; }
         else if(newEpisodes.length > existing.episodes.length) { addedEpisodes += (newEpisodes.length - existing.episodes.length); }
-        s.seasons[idx] = { name: sd.name, episodes: newEpisodes };
+        s.seasons[idx] = { name: sd.name, episodeDuration: existing ? (existing.episodeDuration || null) : null, episodes: newEpisodes };
       }
     }
 
