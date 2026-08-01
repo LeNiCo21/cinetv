@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.8';
+const APP_VERSION = 'v3.7.9';
 
 function loadDB() {
   try {
@@ -5138,6 +5138,9 @@ function openAddFilmToSaga(sagaId, isNewlyCreatedSaga) {
 
     if(!addedAny){ alert('Sélectionnez au moins un film déjà vu, ou ajoutez un film non vu.'); return false; }
 
+    // Sort saga films chronologically (oldest first)
+    saga.films.sort((a,b)=>(parseInt(a.year)||9999)-(parseInt(b.year)||9999));
+
     window._pendingNewSagaId = null; // committed — don't delete the saga on a later cancel
     saveDB(); closeModal();
     window._openSagaCards.add(sagaId);
@@ -5322,6 +5325,8 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
     DB.films.push({id:sf.id,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
     const watchedToday = document.getElementById('fm-watched-today');
     if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:sf.id, sagaId});
+    // Sort saga films chronologically
+    saga.films.sort((a,b)=>(parseInt(a.year)||9999)-(parseInt(b.year)||9999));
     saveDB(); closeModal();
     if(window._sagasPageDraw) window._sagasPageDraw(); else render('sagas');
   });
