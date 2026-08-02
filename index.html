@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.2';
+const APP_VERSION = 'v3.8.3';
 
 function loadDB() {
   try {
@@ -1810,7 +1810,10 @@ function dashboard(el, actions) {
   const episodesByPlatform = {};
   allSeries.forEach(s=>{
     parseNames(s.platforms).forEach(p=>{ seriesByPlatform[p]=(seriesByPlatform[p]||0)+1; });
-    // Count seen episodes per platform, using per-season platform when available
+    // Count seen episodes per platform, using per-season platform when available.
+    // For global seasons (no specific platform), count full episodes for each platform
+    // since global = diffused on all platforms simultaneously.
+    const seriesPlatforms = parseNames(s.platforms);
     (s.seasons||[]).forEach(sn=>{
       const p = sn.platform || null;
       const seenInSeason = (sn.episodes||[]).filter(e=>e.seen).length;
@@ -1818,9 +1821,7 @@ function dashboard(el, actions) {
       if(p) {
         episodesByPlatform[p] = (episodesByPlatform[p]||0) + seenInSeason;
       } else {
-        parseNames(s.platforms).forEach(pl=>{
-          episodesByPlatform[pl] = (episodesByPlatform[pl]||0) + seenInSeason / Math.max(1, parseNames(s.platforms).length);
-        });
+        seriesPlatforms.forEach(pl=>{ episodesByPlatform[pl] = (episodesByPlatform[pl]||0) + seenInSeason; });
       }
     });
   });
