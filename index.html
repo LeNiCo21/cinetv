@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.0';
+const APP_VERSION = 'v3.8.1';
 
 function loadDB() {
   try {
@@ -1239,10 +1239,21 @@ function buildWrappedData(year) {
   } : null;
 
   // Plateformes les plus utilisées cette année (séries vues)
+  // Uses per-season platform if set, otherwise falls back to series-level platforms
   const platformCount = {};
-  seriesWatched.forEach(s => parseNames(s.platforms).forEach(p => {
-    if(p) platformCount[p] = (platformCount[p]||0) + (epBySerie[s.id] ? epBySerie[s.id].length : 1);
-  }));
+  epEntries.forEach(e => {
+    const s = DB.series.find(x=>x.id===e.serieId);
+    if(!s) return;
+    let platforms = [];
+    if(e.seasonIndex >= 0) {
+      const sn = s.seasons && s.seasons[e.seasonIndex];
+      if(sn && sn.platform) platforms = [sn.platform];
+    }
+    if(platforms.length === 0) platforms = parseNames(s.platforms);
+    platforms.forEach(p => {
+      if(p) platformCount[p] = (platformCount[p]||0) + 1;
+    });
+  });
   const topPlatforms = Object.entries(platformCount).sort((a,b)=>b[1]-a[1]).slice(0,3);
   const dominantPlatform = topPlatforms.length ? topPlatforms[0][0] : null;
 
@@ -2842,7 +2853,7 @@ async function refreshSerieFromTmdb(sid) {
         });
         if(!existing) { addedSeasons++; addedEpisodes += newEpisodes.length; }
         else if(newEpisodes.length > existing.episodes.length) { addedEpisodes += (newEpisodes.length - existing.episodes.length); }
-        s.seasons[idx] = { name: sd.name, episodeDuration: existing ? (existing.episodeDuration || null) : null, episodes: newEpisodes };
+        s.seasons[idx] = { name: sd.name, episodeDuration: existing ? (existing.episodeDuration || null) : null, platform: existing ? (existing.platform || null) : null, episodes: newEpisodes };
       }
     }
 
@@ -3320,6 +3331,13 @@ function openSerieForm(id) {
             <label class="form-label" style="margin-bottom:4px">Durée/ép. (min) <small style="color:var(--text-dim)">(optionnel)</small></label>
             <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Global" value="${esc(season.episodeDuration||'')}" oninput="setSeasonEpDuration(${si},this.value)">
           </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px">Chaîne/Plateforme <small style="color:var(--text-dim)">(optionnel)</small></label>
+            <select class="form-select" style="padding:6px 10px;font-size:13px" onchange="setSeasonPlatform(${si},this.value)">
+              <option value="">Global</option>
+              ${platforms.map(p=>`<option value="${esc(p)}" ${season.platform===p?'selected':''}>${esc(p)}</option>`).join('')}
+            </select>
+          </div>
         </div>
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">(vus : ${season.episodes.filter(e=>e.seen).length})</div>
         <button class="btn btn-secondary btn-xs" onclick="toggleEpDetails(${si})">
@@ -3352,6 +3370,7 @@ function openSerieForm(id) {
   window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
   window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
   window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
+  window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
   window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
 
@@ -3502,6 +3521,7 @@ function openSerieForm(id) {
     const cleanSeasons = seasons.map(sn=>({
       name: sn.name||'',
       episodeDuration: sn.episodeDuration || null,
+      platform: sn.platform || null,
       episodes: sn.episodes.map(ep=>({seen:ep.seen||false,title:ep.title||'',airdate:ep.airdate||''}))
         .sort((a,b)=>{
           if(!a.airdate && !b.airdate) return 0;
@@ -3889,6 +3909,13 @@ function openWatchlistToSerieForm(w) {
             <label class="form-label" style="margin-bottom:4px">Durée/ép. (min) <small style="color:var(--text-dim)">(optionnel)</small></label>
             <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Global" value="${esc(season.episodeDuration||'')}" oninput="setSeasonEpDuration(${si},this.value)">
           </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px">Chaîne/Plateforme <small style="color:var(--text-dim)">(optionnel)</small></label>
+            <select class="form-select" style="padding:6px 10px;font-size:13px" onchange="setSeasonPlatform(${si},this.value)">
+              <option value="">Global</option>
+              ${platforms.map(p=>`<option value="${esc(p)}" ${season.platform===p?'selected':''}>${esc(p)}</option>`).join('')}
+            </select>
+          </div>
         </div>
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">(vus : ${season.episodes.filter(e=>e.seen).length})</div>
         <button class="btn btn-secondary btn-xs" onclick="toggleEpDetails(${si})">
@@ -3921,6 +3948,7 @@ function openWatchlistToSerieForm(w) {
   window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
   window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
   window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
+  window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
   window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
 
@@ -4047,7 +4075,7 @@ function openWatchlistToSerieForm(w) {
     if(totalEps===0){ missing.push('au moins un épisode'); valid=false; }
     if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const poster=window._capturedPoster||'';
-    const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodeDuration:sn.episodeDuration||null, episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))
+    const cleanSeasons = seasons.map(sn=>({name:sn.name||'', episodeDuration:sn.episodeDuration||null, platform:sn.platform||null, episodes:sn.episodes.map(ep=>({seen:false,title:ep.title||'',airdate:ep.airdate||''}))
       .sort((a,b)=>{
         if(!a.airdate && !b.airdate) return 0;
         if(!a.airdate) return 1;
@@ -4413,7 +4441,7 @@ function buildWrappedSlides(d, narrative) {
       </div>`;
     });
     platHTML += `</div>`;
-    slides.push(wrappedSection('📡 Plateformes', platHTML));
+    slides.push(wrappedSection('📡 Chaînes / Plateformes', platHTML));
   }
 
   // ---- 5c) Exploration géographique ----
