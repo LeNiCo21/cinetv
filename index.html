@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.1';
+const APP_VERSION = 'v3.8.2';
 
 function loadDB() {
   try {
@@ -1807,7 +1807,23 @@ function dashboard(el, actions) {
   const seriesByGenre = {};
   allSeries.forEach(s=>parseNames(s.genres).forEach(g=>{ seriesByGenre[g]=(seriesByGenre[g]||0)+1; }));
   const seriesByPlatform = {};
-  allSeries.forEach(s=>parseNames(s.platforms).forEach(p=>{ seriesByPlatform[p]=(seriesByPlatform[p]||0)+1; }));
+  const episodesByPlatform = {};
+  allSeries.forEach(s=>{
+    parseNames(s.platforms).forEach(p=>{ seriesByPlatform[p]=(seriesByPlatform[p]||0)+1; });
+    // Count seen episodes per platform, using per-season platform when available
+    (s.seasons||[]).forEach(sn=>{
+      const p = sn.platform || null;
+      const seenInSeason = (sn.episodes||[]).filter(e=>e.seen).length;
+      if(seenInSeason === 0) return;
+      if(p) {
+        episodesByPlatform[p] = (episodesByPlatform[p]||0) + seenInSeason;
+      } else {
+        parseNames(s.platforms).forEach(pl=>{
+          episodesByPlatform[pl] = (episodesByPlatform[pl]||0) + seenInSeason / Math.max(1, parseNames(s.platforms).length);
+        });
+      }
+    });
+  });
   const seriesByStatus = {encours:0,terminee:0,annulee:0};
   allSeries.forEach(s=>{ if(s.status) seriesByStatus[s.status]=(seriesByStatus[s.status]||0)+1; });
 
@@ -2023,9 +2039,9 @@ function dashboard(el, actions) {
         </div>
 
         <div class="card">
-          <div class="card-title">📡 Séries par plateforme</div>
-          <table class="data-table"><thead><tr><th>Plateforme</th><th>Séries</th></tr></thead>
-          <tbody>${platformSorted.slice(0,10).map(([p,n])=>`<tr style="cursor:pointer" onclick="openByFilter('platform','serie','${encodeURIComponent(p)}')"><td style="color:var(--gold)">${esc(p)}</td><td>${n}</td></tr>`).join('')}${platformSorted.length>10?`<tbody id="more-pl" style="display:none">${platformSorted.slice(10).map(([p,n])=>`<tr style="cursor:pointer" onclick="openByFilter('platform','serie','${encodeURIComponent(p)}')"><td style="color:var(--gold)">${esc(p)}</td><td>${n}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
+          <div class="card-title">📡 Séries par chaîne/plateforme</div>
+          <table class="data-table"><thead><tr><th>Chaîne/Plateforme</th><th>Séries</th><th>Épisodes vus</th></tr></thead>
+          <tbody>${platformSorted.slice(0,10).map(([p,n])=>`<tr style="cursor:pointer" onclick="openByFilter('platform','serie','${encodeURIComponent(p)}')"><td style="color:var(--gold)">${esc(p)}</td><td>${n}</td><td>${Math.round(episodesByPlatform[p]||0)}</td></tr>`).join('')}${platformSorted.length>10?`<tbody id="more-pl" style="display:none">${platformSorted.slice(10).map(([p,n])=>`<tr style="cursor:pointer" onclick="openByFilter('platform','serie','${encodeURIComponent(p)}')"><td style="color:var(--gold)">${esc(p)}</td><td>${n}</td><td>${Math.round(episodesByPlatform[p]||0)}</td></tr>`).join('')}</tbody>`:''}</tbody></table>
           ${platformSorted.length>10?`<div class="show-more-btn" onclick="toggleMore('pl',this)">▼ Voir tout (${platformSorted.length})</div>`:''}
         </div>
 
