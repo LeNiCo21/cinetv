@@ -3371,7 +3371,7 @@ function openSerieForm(id) {
   window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
   window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
   window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
-  window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
+  window.addSeason=()=>{ const prevPlatform = seasons.length ? (seasons[seasons.length-1].platform||null) : null; seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
 
   function renderSpecialsEditor() {
@@ -3949,7 +3949,7 @@ function openWatchlistToSerieForm(w) {
   window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
   window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
   window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
-  window.addSeason=()=>{ seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false}); renderSeasonsEditor(); };
+  window.addSeason=()=>{ const prevPlatform = seasons.length ? (seasons[seasons.length-1].platform||null) : null; seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
 
   function renderSpecialsEditor() {
