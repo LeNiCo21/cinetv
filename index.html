@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.7.9';
+const APP_VERSION = 'v3.8.0';
 
 function loadDB() {
   try {
@@ -1975,14 +1975,14 @@ function dashboard(el, actions) {
         <div class="card">
           <div class="card-title">🏆 Top 10 — Épisodes vus</div>
           <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Épisodes vus</th></tr></thead><tbody>
-          ${top10eps.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${serieSeenEps(s)}</td></tr>`).join('')}
+          ${top10eps.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${serieSeenEpsAll(s)}</td></tr>`).join('')}
           </tbody></table>
         </div>
 
         <div class="card">
           <div class="card-title">⏱ Top 10 — Durée visionnée</div>
           <table class="data-table"><thead><tr><th>#</th><th>Série</th><th>Vu</th></tr></thead><tbody>
-          ${top10dur.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${fmtDuration(serieSeenMin(s))}</td></tr>`).join('')}
+          ${top10dur.map((s,i)=>`<tr><td class="rank">${i+1}</td><td>${esc(s.title)}</td><td>${fmtDuration(serieSeenMinAll(s))}</td></tr>`).join('')}
           </tbody></table>
         </div>
 
