@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.3';
+const APP_VERSION = 'v3.8.4';
 
 function loadDB() {
   try {
@@ -3333,7 +3333,11 @@ function openSerieForm(id) {
       <div style="background:var(--surface3);border-radius:8px;padding:12px;margin-bottom:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <b>Saison ${si+1}</b>
-          <button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="btn btn-secondary btn-xs" onclick="moveSeasonUp(${si})" ${si===0?'disabled':''} title="Monter">↑</button>
+            <button class="btn btn-secondary btn-xs" onclick="moveSeasonDown(${si})" ${si===seasons.length-1?'disabled':''} title="Descendre">↓</button>
+            <button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button>
+          </div>
         </div>
         <div class="form-row" style="margin-bottom:10px">
           <div>
@@ -3390,6 +3394,8 @@ function openSerieForm(id) {
   window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
   window.addSeason=()=>{ const prevPlatform = seasons.length ? (seasons[seasons.length-1].platform||null) : null; seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
+  window.moveSeasonUp=(si)=>{ if(si>0){ [seasons[si-1],seasons[si]]=[seasons[si],seasons[si-1]]; renderSeasonsEditor(); } };
+  window.moveSeasonDown=(si)=>{ if(si<seasons.length-1){ [seasons[si],seasons[si+1]]=[seasons[si+1],seasons[si]]; renderSeasonsEditor(); } };
 
   function renderSpecialsEditor() {
     const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
@@ -3911,7 +3917,11 @@ function openWatchlistToSerieForm(w) {
       <div style="background:var(--surface3);border-radius:8px;padding:12px;margin-bottom:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <b>Saison ${si+1}</b>
-          <button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="btn btn-secondary btn-xs" onclick="moveSeasonUp(${si})" ${si===0?'disabled':''} title="Monter">↑</button>
+            <button class="btn btn-secondary btn-xs" onclick="moveSeasonDown(${si})" ${si===seasons.length-1?'disabled':''} title="Descendre">↓</button>
+            <button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button>
+          </div>
         </div>
         <div class="form-row" style="margin-bottom:10px">
           <div>
@@ -3968,6 +3978,8 @@ function openWatchlistToSerieForm(w) {
   window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
   window.addSeason=()=>{ const prevPlatform = seasons.length ? (seasons[seasons.length-1].platform||null) : null; seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); renderSeasonsEditor(); };
   window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
+  window.moveSeasonUp=(si)=>{ if(si>0){ [seasons[si-1],seasons[si]]=[seasons[si],seasons[si-1]]; renderSeasonsEditor(); } };
+  window.moveSeasonDown=(si)=>{ if(si<seasons.length-1){ [seasons[si],seasons[si+1]]=[seasons[si+1],seasons[si]]; renderSeasonsEditor(); } };
 
   function renderSpecialsEditor() {
     const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
