@@ -303,7 +303,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.4';
+const APP_VERSION = 'v3.8.5';
 
 function loadDB() {
   try {
@@ -3305,7 +3305,7 @@ function openSerieForm(id) {
   const platforms = serie ? parseNames(serie.platforms) : [];
   const genres = serie ? parseNames(serie.genres) : [];
   let tmdbId = serie ? (serie.tmdbId||null) : null;
-  let seasons = serie ? JSON.parse(JSON.stringify(serie.seasons||[])) : [];
+  let seasons = serie ? JSON.parse(JSON.stringify(serie.seasons||[])).map((sn,i)=>({...sn,_origIdx:i})) : [];
   let specials = serie ? JSON.parse(JSON.stringify(serie.specials||[])) : [];
 
   function addWeek(dateStr) {
@@ -3562,6 +3562,17 @@ function openSerieForm(id) {
       });
       const cleanSpecials = specials.map(sp=>({seen:sp.seen||false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
         .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
+      // Remap watchLog entries if seasons were reordered
+      const origToNew = {};
+      seasons.forEach((sn, newIdx) => { if(sn._origIdx !== undefined && sn._origIdx !== newIdx) origToNew[sn._origIdx] = newIdx; });
+      if(Object.keys(origToNew).length > 0) {
+        DB.watchLog = (DB.watchLog||[]).map(e => {
+          if(e.type==='episode' && e.serieId===serie.id && e.seasonIndex >= 0 && origToNew[e.seasonIndex] !== undefined) {
+            return {...e, seasonIndex: origToNew[e.seasonIndex]};
+          }
+          return e;
+        });
+      }
       Object.assign(serie,{title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster});
     } else {
       const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
