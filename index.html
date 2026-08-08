@@ -306,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.7';
+const APP_VERSION = 'v3.8.9';
 
 function loadDB() {
   try {
@@ -2300,11 +2300,39 @@ function dashMarkEpSeen(sid, si, ei) {
     const card = document.getElementById('continue-card-'+sid);
     if(card) {
       // Determine message based on serie status and completion
+      const doneSubMsgs = [
+        'Bravo pour la persévérance !',
+        'Quelle aventure !',
+        'Toutes les bonnes choses ont une fin.',
+        'Et une de plus !',
+        'Ça, c\'est fait !',
+        'Il est temps de se reposer.',
+        '« The song is ending, but the story never ends. »',
+      ];
+      const cancelledSubMsgs = [
+        'Il n\'y aura jamais de suite.',
+        'Il y a comme un sentiment d\'inachevé.',
+        'Un peu brutale, cette fin, non ?',
+        'N\'attends pas la suite, la série est annulée.',
+        'Bon. Que fait-on maintenant ?',
+      ];
+      const upToDateSubMsgs = [
+        'Bien joué, tu es à jour !',
+        'À bientôt pour la suite !',
+        'Vivement la suite !',
+        'Ne reste plus qu\'à patienter pour la prochaine saison.',
+        'Quelle saison !',
+        'La suite arrive... quand elle arrivera.',
+        'Ça promet !',
+        'Circulez, il n\'y a plus rien à voir... pour l\'instant.',
+      ];
+      const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+
       let emoji, msg, subMsg;
       if(allSeasonsDone && (s.status==='terminee' || s.status==='annulee')) {
-        emoji='🎉'; msg='Série terminée !'; subMsg=s.status==='annulee'?'Dommage qu\'elle soit annulée...':'Bravo pour la persévérance !';
+        emoji='🎉'; msg='Série terminée !'; subMsg=s.status==='annulee' ? pick(cancelledSubMsgs) : pick(doneSubMsgs);
       } else {
-        emoji='✨'; msg='Série à jour !'; subMsg='La suite arrive bientôt…';
+        emoji='✨'; msg='Série à jour !'; subMsg=pick(upToDateSubMsgs);
       }
 
       // Build confetti particles
@@ -2339,7 +2367,7 @@ function dashMarkEpSeen(sid, si, ei) {
           setDashMobileTab(activeDashTab);
           if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
         }, 500);
-      }, 3000);
+      }, 2200);
       return;
     }
   }
