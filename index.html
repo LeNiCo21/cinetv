@@ -227,6 +227,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .drop-zone{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:40px;text-align:center;cursor:pointer;transition:border-color .2s;}
 .drop-zone:hover{border-color:var(--gold);}
 .continue-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;gap:14px;}
+.continue-card-done{background:var(--surface2);border:1px solid var(--gold-dim);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;justify-content:center;min-height:80px;position:relative;overflow:hidden;}
+@keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(80px) rotate(720deg);opacity:0}}
+@keyframes completionPop{0%{transform:scale(0.8);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
 .continue-info{flex:1;}
 .continue-title{font-weight:600;font-size:14px;}
 .continue-ep{font-size:12px;color:var(--gold);margin-top:3px;}
@@ -303,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.5';
+const APP_VERSION = 'v3.8.7';
 
 function loadDB() {
   try {
@@ -1887,7 +1890,7 @@ function dashboard(el, actions) {
       const epObj = s.seasons[nextEp.si]?.episodes[nextEp.ei];
       epLabel = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
     }
-    return `<div class="continue-card">
+    return `<div class="continue-card" id="continue-card-${s.id}">
       <div class="continue-info">
         <div class="continue-title" onclick="goToSerie('${s.id}')" style="cursor:pointer">${esc(s.title)}</div>
         <div class="continue-ep">${esc(epLabel)}</div>
@@ -2281,19 +2284,71 @@ function findNextEpisode(s) {
 function dashMarkEpSeen(sid, si, ei) {
   const s = DB.series.find(x=>x.id===sid);
   if(!s) return;
-  // Remember which mobile tab was active before re-rendering
   const activeDashTab = document.querySelector('.dash-mobile-tab.active')?.dataset.dashtab || 'series';
   s.seasons[si].episodes[ei].seen = true;
   s.lastInteracted = Date.now();
   _lastInteractedSerieId = sid;
   logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
   saveDB();
-  // Save scroll position before re-render
+
+  // Check if this was the last available episode — if so, play completion animation
+  const nextEp = findNextEpisode(s);
+  const isNowComplete = nextEp === null;
+  const allSeasonsDone = serieSeenEps(s) >= serieTotalEps(s);
+
+  if(isNowComplete) {
+    const card = document.getElementById('continue-card-'+sid);
+    if(card) {
+      // Determine message based on serie status and completion
+      let emoji, msg, subMsg;
+      if(allSeasonsDone && (s.status==='terminee' || s.status==='annulee')) {
+        emoji='🎉'; msg='Série terminée !'; subMsg=s.status==='annulee'?'Dommage qu\'elle soit annulée...':'Bravo pour la persévérance !';
+      } else {
+        emoji='✨'; msg='Série à jour !'; subMsg='La suite arrive bientôt…';
+      }
+
+      // Build confetti particles
+      const colors=['#E8C46A','#4a9eff','#ff3d9a','#4ade80','#f87171','#fbbf24'];
+      const confetti = Array.from({length:18},(_,i)=>{
+        const color=colors[i%colors.length];
+        const left=Math.random()*100;
+        const delay=Math.random()*0.6;
+        const dur=0.8+Math.random()*0.5;
+        const size=5+Math.random()*6;
+        return `<div style="position:absolute;left:${left}%;top:0;width:${size}px;height:${size}px;background:${color};border-radius:${Math.random()>0.5?'50%':'2px'};animation:confettiFall ${dur}s ${delay}s ease-in forwards"></div>`;
+      }).join('');
+
+      card.className='continue-card-done';
+      card.innerHTML=`
+        ${confetti}
+        <div style="text-align:center;animation:completionPop .4s ease-out forwards;position:relative;z-index:1">
+          <div style="font-size:28px;margin-bottom:4px">${emoji}</div>
+          <div style="font-weight:700;font-size:15px;color:var(--gold)">${msg}</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${esc(s.title)} — ${subMsg}</div>
+        </div>`;
+
+      // After animation, fade out then refresh dashboard
+      setTimeout(()=>{
+        card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.95)';
+        setTimeout(()=>{
+          const contentEl = document.getElementById('content');
+          const scrollPos = contentEl ? contentEl.scrollTop : 0;
+          render('dashboard');
+          setDashMobileTab(activeDashTab);
+          if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
+        }, 500);
+      }, 2200);
+      return;
+    }
+  }
+
+  // Normal refresh (no completion animation)
   const contentEl = document.getElementById('content');
   const scrollPos = contentEl ? contentEl.scrollTop : 0;
   render('dashboard');
   setDashMobileTab(activeDashTab);
-  // Restore scroll after browser has repainted
   if(contentEl && scrollPos > 0) {
     requestAnimationFrame(()=>{
       requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; });
