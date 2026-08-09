@@ -306,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.9.2';
+const APP_VERSION = 'v3.9.3';
 
 function loadDB() {
   try {
@@ -2485,6 +2485,7 @@ function filmRow(f) {
         <div class="media-meta">${parseNames(f.directors).map(d=>`<span style="cursor:pointer;color:var(--gold);text-decoration:underline" onclick="event.stopPropagation();openFilmography('${encodeURIComponent(d)}')">${esc(d)}</span>`).join(', ')||'–'} • ${esc(f.year||'?')} • ${f.duration?f.duration+' min':'–'}</div>
       </div>
       <div class="media-actions" onclick="event.stopPropagation()">
+        ${f.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="fetchTmdbPosterForFilm('${f.id}')" title="Récupérer le poster depuis TMDB">🖼</button>` : ''}
         <button class="btn btn-secondary btn-xs" onclick="openFilmForm('${f.id}')">✏️</button>
         <button class="btn btn-danger btn-xs" onclick="deleteFilm('${f.id}')">🗑</button>
       </div>
@@ -2506,6 +2507,26 @@ function toggleFilmExtra(id) {
   const el=document.getElementById('fextra-'+id);
   if(el) el.style.display=el.style.display==='none'?'block':'none';
 }
+async function fetchTmdbPosterForFilm(id) {
+  const f = DB.films.find(x=>x.id===id); if(!f||!f.tmdbId) return;
+  try {
+    const data = await tmdbFetch(`/movie/${f.tmdbId}`);
+    if(!data.poster_path) { alert('Aucun poster disponible sur TMDB pour ce film.'); return; }
+    f.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path;
+    saveDB(); render('films');
+  } catch(e) { alert('Erreur lors de la récupération du poster.'); }
+}
+
+async function fetchTmdbPosterForSerie(id) {
+  const s = DB.series.find(x=>x.id===id); if(!s||!s.tmdbId) return;
+  try {
+    const data = await tmdbFetch(`/tv/${s.tmdbId}`);
+    if(!data.poster_path) { alert('Aucun poster disponible sur TMDB pour cette série.'); return; }
+    s.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path;
+    saveDB(); refreshSerieDetailModal(id);
+  } catch(e) { alert('Erreur lors de la récupération du poster.'); }
+}
+
 function deleteFilm(id) {
   if(!confirm('Supprimer ce film ?')) return;
   const film = DB.films.find(f=>f.id===id);
@@ -2831,6 +2852,7 @@ function renderSerieDetailModalHTML(s) {
       <div class="modal-header">
         <div class="modal-title">${esc(s.title)}${s.abandoned?' <span class="badge badge-gray" style="font-size:11px;vertical-align:middle">Abandonnée</span>':''}</div>
         <div style="display:flex;align-items:center;gap:6px">
+          ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="fetchTmdbPosterForSerie('${s.id}')" title="Récupérer le poster depuis TMDB">🖼</button>` : ''}
           <button class="btn btn-secondary btn-xs" onclick="openSerieFormFromDetail('${s.id}')" title="Modifier la série">✏️</button>
           <button class="close-btn" onclick="closeModal()">✕</button>
         </div>
