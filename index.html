@@ -239,13 +239,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .poster-upload-btn{cursor:pointer;}
 .dash-split{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
 .dash-side{display:flex;flex-direction:column;gap:16px;}
+.dash-panels-track{display:contents;}
+.dash-panels{display:contents;}
 .dash-mobile-tabs{display:none;}
 @media(max-width:1100px){
   .dash-split{grid-template-columns:1fr;}
   .dash-mobile-tabs{display:flex;gap:4px;background:var(--surface2);border-radius:var(--radius);padding:4px;margin-bottom:16px;}
   .dash-mobile-tab{flex:1;padding:9px 12px;border-radius:6px;border:none;cursor:pointer;font-family:var(--font-ui);font-size:13px;font-weight:600;background:transparent;color:var(--text-dim);transition:all .15s;}
   .dash-mobile-tab.active{background:var(--surface);color:var(--gold);}
-  .dash-panels{overflow:hidden;position:relative;}
+  .dash-panels{display:block;overflow:hidden;position:relative;}
   .dash-panels-track{display:flex;transition:transform 0.3s cubic-bezier(.4,0,.2,1);will-change:transform;}
   .dash-side{min-width:100%;display:flex;flex-direction:column;gap:16px;}
 }
@@ -310,7 +312,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.0.5';
+const APP_VERSION = 'v4.0.6';
 
 function loadDB() {
   try {
