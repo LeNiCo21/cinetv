@@ -2670,7 +2670,7 @@ function searchTmdbPosterForFilm(id) {
       if(data.poster_path) { f.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path; saveDB(); closeModal(); render('films'); }
       else alert('Aucun poster disponible pour ce film.');
     } catch(e) { alert('Erreur.'); }
-  }, f.title + (f.year ? ' '+f.year : ''));
+  }, f.title);
 }
 
 async function fetchTmdbPosterForSerie(id) {
@@ -5384,7 +5384,7 @@ async function fetchAllMissingPosters() {
         }
         currentIdx++; showManualPosterModal();
       } catch(e) { alert('Erreur.'); }
-    }, item.title + (item.year ? ' '+item.year : ''));
+    }, item.title);
   }
   if(autoTotal > 0) alert(`${done} poster(s) récupéré(s) automatiquement. On passe maintenant aux ${remaining.length} sans lien TMDB.`);
   showManualPosterModal();
