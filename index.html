@@ -306,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.9.3';
+const APP_VERSION = 'v3.9.4';
 
 function loadDB() {
   try {
@@ -802,6 +802,36 @@ function render(page) {
   pageMap[page](content, actions);
 }
 render('dashboard');
+
+// Check if bilan is available for the previous year (first open notification)
+(function checkBilanAvailable() {
+  const now = new Date();
+  const prevYear = now.getFullYear() - 1;
+  const hasPrevBilan = (DB.wrappeds||[]).some(w=>w.year===prevYear);
+  const notifKey = 'cinetv_bilan_notif_'+prevYear;
+  if(hasPrevBilan && !localStorage.getItem(notifKey)) {
+    localStorage.setItem(notifKey, '1');
+    setTimeout(()=>{
+      const colors = ['#E8C46A','#4a9eff','#ff3d9a','#4ade80','#f87171','#fbbf24'];
+      const confetti = Array.from({length:40},(_,i)=>{
+        const c=colors[i%colors.length], l=Math.random()*100, delay=Math.random()*1.5, dur=1+Math.random()*1, size=5+Math.random()*8;
+        return `<div style="position:fixed;left:${l}%;top:-10px;width:${size}px;height:${size}px;background:${c};border-radius:${Math.random()>.5?'50%':'2px'};animation:confettiFall ${dur}s ${delay}s ease-in forwards;z-index:999;pointer-events:none"></div>`;
+      }).join('');
+      document.body.insertAdjacentHTML('beforeend', `<div id="bilan-notif-overlay" style="position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)">
+        ${confetti}
+        <div style="background:var(--surface);border:1px solid var(--gold);border-radius:var(--radius-lg);padding:28px 32px;max-width:380px;text-align:center;position:relative;z-index:1001;animation:completionPop .4s ease-out">
+          <div style="font-size:36px;margin-bottom:12px">🎊</div>
+          <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:8px">Ton bilan ${prevYear} est disponible !</div>
+          <div style="font-size:13px;color:var(--text-dim);margin-bottom:20px">Une année de visionnage résumée en quelques slides. Tu veux y jeter un œil ?</div>
+          <div style="display:flex;gap:10px;justify-content:center">
+            <button class="btn btn-primary" onclick="document.getElementById('bilan-notif-overlay').remove();document.querySelector('.nav-item[data-page=wrapped]')?.click()">✨ Voir le bilan</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('bilan-notif-overlay').remove()">Plus tard</button>
+          </div>
+        </div>
+      </div>`);
+    }, 800);
+  }
+})();
 
 // Show/hide scroll-to-top button
 (function() {
@@ -2098,8 +2128,8 @@ function fireworksInModal(sid) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:50;border-radius:inherit';
   const colors = ['#E8C46A','#4a9eff','#ff3d9a','#4ade80','#f87171','#fbbf24'];
-  let html = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:51;pointer-events:none">
-    <div style="font-size:22px;font-weight:700;color:var(--gold);text-shadow:0 0 12px rgba(232,196,106,.5);animation:completionPop .4s ease-out">${msg}</div>
+  let html = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:51;pointer-events:none;background:rgba(13,15,20,.85);padding:12px 20px;border-radius:10px;border:1px solid rgba(232,196,106,.3)">
+    <div style="font-size:22px;font-weight:700;color:var(--gold);animation:completionPop .4s ease-out">${msg}</div>
   </div>`;
   for(let i=0;i<24;i++){
     const color=colors[i%colors.length];
@@ -2485,7 +2515,7 @@ function filmRow(f) {
         <div class="media-meta">${parseNames(f.directors).map(d=>`<span style="cursor:pointer;color:var(--gold);text-decoration:underline" onclick="event.stopPropagation();openFilmography('${encodeURIComponent(d)}')">${esc(d)}</span>`).join(', ')||'–'} • ${esc(f.year||'?')} • ${f.duration?f.duration+' min':'–'}</div>
       </div>
       <div class="media-actions" onclick="event.stopPropagation()">
-        ${f.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="fetchTmdbPosterForFilm('${f.id}')" title="Récupérer le poster depuis TMDB">🖼</button>` : ''}
+        ${f.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="fetchTmdbPosterForFilm('${f.id}')" title="Récupérer le poster depuis TMDB">🖼</button>` : `<button class="btn btn-secondary btn-xs" onclick="searchTmdbPosterForFilm('${f.id}')" title="Rechercher un poster sur TMDB">🖼</button>`}
         <button class="btn btn-secondary btn-xs" onclick="openFilmForm('${f.id}')">✏️</button>
         <button class="btn btn-danger btn-xs" onclick="deleteFilm('${f.id}')">🗑</button>
       </div>
@@ -2517,6 +2547,25 @@ async function fetchTmdbPosterForFilm(id) {
   } catch(e) { alert('Erreur lors de la récupération du poster.'); }
 }
 
+function searchTmdbPosterForFilm(id) {
+  const f = DB.films.find(x=>x.id===id); if(!f) return;
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" id="modal-overlay" onclick="if(event.target.id==='modal-overlay')closeModal()">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header"><div class="modal-title">🖼 Poster TMDB — ${esc(f.title)}</div><button class="close-btn" onclick="closeModal()">✕</button></div>
+      <div class="modal-body"><div id="poster-search-box"></div></div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>
+    </div>
+  </div>`;
+  renderTmdbSearchBox('poster-search-box', 'movie', async (picked) => {
+    try {
+      const data = await tmdbFetch(`/movie/${picked.id}`);
+      if(data.poster_path) { f.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path; saveDB(); closeModal(); render('films'); }
+      else alert('Aucun poster disponible pour ce film.');
+    } catch(e) { alert('Erreur.'); }
+  });
+}
+
 async function fetchTmdbPosterForSerie(id) {
   const s = DB.series.find(x=>x.id===id); if(!s||!s.tmdbId) return;
   try {
@@ -2525,6 +2574,25 @@ async function fetchTmdbPosterForSerie(id) {
     s.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path;
     saveDB(); refreshSerieDetailModal(id);
   } catch(e) { alert('Erreur lors de la récupération du poster.'); }
+}
+
+function searchTmdbPosterForSerie(id) {
+  const s = DB.series.find(x=>x.id===id); if(!s) return;
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" id="modal-overlay" onclick="if(event.target.id==='modal-overlay')closeModal()">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header"><div class="modal-title">🖼 Poster TMDB — ${esc(s.title)}</div><button class="close-btn" onclick="closeModal()">✕</button></div>
+      <div class="modal-body"><div id="poster-search-box"></div></div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Fermer</button></div>
+    </div>
+  </div>`;
+  renderTmdbSearchBox('poster-search-box', 'tv', async (picked) => {
+    try {
+      const data = await tmdbFetch(`/tv/${picked.id}`);
+      if(data.poster_path) { s.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path; saveDB(); closeModal(); refreshSerieDetailModal(id); }
+      else alert('Aucun poster disponible pour cette série.');
+    } catch(e) { alert('Erreur.'); }
+  });
 }
 
 function deleteFilm(id) {
@@ -2640,6 +2708,8 @@ function openFilmForm(id) {
     if(film){
       Object.assign(film,{title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
     } else {
+      const duplicate = DB.films.find(f=>f.title.trim().toLowerCase()===title.toLowerCase() && f.year===year);
+      if(duplicate && !confirm(`Un film "${title}" (${year}) existe déjà. Ajouter quand même ?`)) return false;
       const newId = uid();
       DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
       const watchedToday = document.getElementById('fm-watched-today');
@@ -2852,7 +2922,8 @@ function renderSerieDetailModalHTML(s) {
       <div class="modal-header">
         <div class="modal-title">${esc(s.title)}${s.abandoned?' <span class="badge badge-gray" style="font-size:11px;vertical-align:middle">Abandonnée</span>':''}</div>
         <div style="display:flex;align-items:center;gap:6px">
-          ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="fetchTmdbPosterForSerie('${s.id}')" title="Récupérer le poster depuis TMDB">🖼</button>` : ''}
+          ${s.tmdbId ? `<button class="btn btn-secondary btn-xs" onclick="fetchTmdbPosterForSerie('${s.id}')" title="Récupérer le poster depuis TMDB">🖼</button>` : `<button class="btn btn-secondary btn-xs" onclick="searchTmdbPosterForSerie('${s.id}')" title="Rechercher un poster sur TMDB">🖼</button>`}
+          <button class="btn btn-secondary btn-xs" onclick="toggleAbandoned('${s.id}')" title="${s.abandoned?'Restaurer la série':'Abandonner la série'}">${s.abandoned?'↩':'🗄'}</button>
           <button class="btn btn-secondary btn-xs" onclick="openSerieFormFromDetail('${s.id}')" title="Modifier la série">✏️</button>
           <button class="close-btn" onclick="closeModal()">✕</button>
         </div>
@@ -3728,6 +3799,8 @@ function openSerieForm(id) {
       }
       Object.assign(serie,{title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster});
     } else {
+      const duplicate = DB.series.find(s=>s.title.trim().toLowerCase()===title.toLowerCase());
+      if(duplicate && !confirm(`Une série "${title}" existe déjà. Ajouter quand même ?`)) return false;
       const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
         .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
       DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster,abandoned:false,lastInteracted:0});
@@ -4848,6 +4921,7 @@ function importPage(el) {
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="exportDB()">📤 Exporter (JSON)</button>
       <button class="btn btn-secondary" onclick="document.getElementById('import-json').click()">📥 Restaurer depuis JSON<input type="file" id="import-json" accept=".json" style="display:none" onchange="restoreDB(this)"></button>
+      <button class="btn btn-secondary" onclick="fetchAllMissingPosters()">🖼 Récupérer les posters manquants</button>
       <button class="btn btn-secondary" onclick="cleanWatchLog()">🧹 Nettoyer le watchLog</button>
       <button class="btn btn-danger" onclick="clearDB()">🗑 Effacer toutes les données</button>
     </div>
@@ -5107,6 +5181,32 @@ async function exportDB(){
   a.click();
 }
 function restoreDB(input){if(!input.files[0]) return;if(!confirm('Remplacer toutes les données ?')) return;const r=new FileReader();r.onload=e=>{try{DB=JSON.parse(e.target.result);saveDB();alert('Données restaurées.');render('dashboard');}catch(ex){alert('Fichier invalide.');}};r.readAsText(input.files[0]);}
+async function fetchAllMissingPosters() {
+  const filmsToFetch = DB.films.filter(f=>!f.poster && f.tmdbId);
+  const seriesToFetch = DB.series.filter(s=>!s.poster && s.tmdbId);
+  const total = filmsToFetch.length + seriesToFetch.length;
+  if(total === 0) { alert('Tous les films et séries avec un lien TMDB ont déjà un poster.'); return; }
+  if(!confirm(`Récupérer les posters manquants depuis TMDB ?\n${filmsToFetch.length} film(s) et ${seriesToFetch.length} série(s) concerné(s).`)) return;
+
+  let done = 0, errors = 0;
+  for(const f of filmsToFetch) {
+    try {
+      const data = await tmdbFetch(`/movie/${f.tmdbId}`);
+      if(data.poster_path) f.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path;
+      done++;
+    } catch(e) { errors++; }
+  }
+  for(const s of seriesToFetch) {
+    try {
+      const data = await tmdbFetch(`/tv/${s.tmdbId}`);
+      if(data.poster_path) s.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path;
+      done++;
+    } catch(e) { errors++; }
+  }
+  saveDB();
+  alert(`Terminé : ${done} poster(s) récupéré(s)${errors?`, ${errors} erreur(s)`:'.'}`);
+}
+
 function cleanWatchLog(){
   if(!confirm('Nettoyer le watchLog ?\n\nCela supprimera toutes les entrées correspondant à des épisodes ou films actuellement marqués comme "non vu" ou supprimés. Cette action est irréversible.')) return;
   const before = (DB.watchLog||[]).length;
@@ -5151,10 +5251,10 @@ window._openSagaCards = window._openSagaCards || new Set();
 
 function sagasPage(el, actions) {
   actions.innerHTML = `<button class="btn btn-primary" onclick="openSagaForm()">＋ Nouvelle saga</button>`;
-  let sortMode = 'date-asc';
+  let sortMode = 'alpha-asc';
   let search = '';
-  let typeFilter = 'all'; // all | 2 | 3 | 4plus
-  const sortLabels = {'date-asc':'Date ↑','alpha-asc':'A → Z','alpha-desc':'Z → A','count-desc':'Nb films ↓','count-asc':'Nb films ↑'};
+  let typeFilter = 'all';
+  const sortLabels = {'alpha-asc':'A → Z','alpha-desc':'Z → A','date-asc':'Date ↑','count-desc':'Nb films ↓','count-asc':'Nb films ↑'};
   const typeFilterLabels = {all:'Tous types', 2:'Dilogies', 3:'Trilogies', '4plus':'Sagas (4+)'};
 
   function draw() {
@@ -5218,7 +5318,13 @@ function sagaCard(sg) {
   const filmItems = films.map((sf,idx)=>{
     const seenFilm = DB.films.find(f=>f.id===sf.id);
     const isSeen = !!seenFilm;
-    return `<div class="saga-film-row" id="sfrow-${sg.id}-${idx}">
+    return `<div class="saga-film-row" id="sfrow-${sg.id}-${idx}" draggable="true"
+      ondragstart="sagaDragStart(event,'${sg.id}',${idx})"
+      ondragover="sagaDragOver(event)"
+      ondrop="sagaDrop(event,'${sg.id}',${idx})"
+      ondragend="sagaDragEnd(event)"
+      style="cursor:grab">
+      <div style="color:var(--text-dim);font-size:16px;padding:0 4px;cursor:grab;flex-shrink:0">⠿</div>
       <div class="saga-film-poster">
         ${(seenFilm?.poster)||sf.poster ? `<img src="${(seenFilm?.poster)||sf.poster}" alt="">` : '🎬'}
       </div>
@@ -5228,8 +5334,6 @@ function sagaCard(sg) {
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
         <button class="btn ${isSeen?'btn-secondary':'btn-green'} btn-xs" onclick="event.stopPropagation();toggleSagaFilmSeen('${sg.id}','${sf.id}')" title="${isSeen?'Marquer comme non vu':'Marquer comme vu'}">${isSeen?'✗':'✓'}</button>
-        <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();moveSagaFilm('${sg.id}',${idx},-1)" ${idx===0?'disabled':''} title="Monter">↑</button>
-        <button class="btn btn-secondary btn-xs" onclick="event.stopPropagation();moveSagaFilm('${sg.id}',${idx},1)" ${idx===films.length-1?'disabled':''} title="Descendre">↓</button>
         <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();removeSagaFilm('${sg.id}','${sf.id}')" title="Retirer de la saga">🗑</button>
       </div>
     </div>`;
@@ -5255,6 +5359,31 @@ function sagaCard(sg) {
       <div style="display:flex;flex-direction:column;gap:8px">${filmItems}</div>
     </div>` : ''}
   </div>`;
+}
+
+function sagaDragStart(e, sagaId, idx) {
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', JSON.stringify({sagaId, idx}));
+  e.currentTarget.style.opacity = '0.4';
+}
+function sagaDragOver(e) {
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.style.borderColor = 'var(--gold)';
+}
+function sagaDragEnd(e) {
+  e.currentTarget.style.opacity = ''; e.currentTarget.style.borderColor = '';
+}
+function sagaDrop(e, sagaId, targetIdx) {
+  e.preventDefault(); e.currentTarget.style.borderColor = '';
+  try {
+    const {sagaId: fromSagaId, idx: fromIdx} = JSON.parse(e.dataTransfer.getData('text/plain'));
+    if(fromSagaId !== sagaId || fromIdx === targetIdx) return;
+    const saga = (DB.sagas||[]).find(sg=>sg.id===sagaId); if(!saga) return;
+    const [film] = saga.films.splice(fromIdx, 1);
+    saga.films.splice(targetIdx, 0, film);
+    saveDB();
+    if(window._sagasPageDraw) window._sagasPageDraw();
+  } catch(err) {}
 }
 
 function toggleSagaCard(id) {
