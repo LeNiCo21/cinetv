@@ -309,7 +309,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.0.1';
+const APP_VERSION = 'v4.0.3';
 
 function loadDB() {
   try {
@@ -3215,7 +3215,10 @@ async function refreshSerieFromTmdb(sid) {
         });
         if(!existing) { addedSeasons++; addedEpisodes += newEpisodes.length; }
         else if(newEpisodes.length > existing.episodes.length) { addedEpisodes += (newEpisodes.length - existing.episodes.length); }
-        s.seasons[idx] = { name: sd.name, episodeDuration: existing ? (existing.episodeDuration || null) : null, platform: existing ? (existing.platform || null) : null, episodes: newEpisodes };
+        // Preserve custom season name if it was manually set (not a generic "Saison X" / "Season X")
+        const isGenericName = (n) => !n || /^saison\s*\d+$/i.test(n.trim()) || /^season\s*\d+$/i.test(n.trim());
+        const preservedName = existing && existing.name && !isGenericName(existing.name) ? existing.name : (isGenericName(sd.name) ? '' : sd.name);
+        s.seasons[idx] = { name: preservedName, episodeDuration: existing ? (existing.episodeDuration || null) : null, platform: existing ? (existing.platform || null) : null, episodes: newEpisodes };
       }
     }
 
@@ -5020,6 +5023,7 @@ function importPage(el) {
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn btn-secondary" onclick="backfillInfo('films')">🎬 Compléter les films</button>
       <button class="btn btn-secondary" onclick="backfillInfo('series')">📺 Compléter les séries</button>
+      <button class="btn btn-secondary" onclick="fetchAllMissingPosters()">🖼 Récupérer les posters manquants</button>
     </div>
     <div id="genre-backfill-log" style="font-size:13px;max-height:220px;overflow-y:auto"></div>
   </div>
@@ -5047,7 +5051,6 @@ function importPage(el) {
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="exportDB()">📤 Exporter (JSON)</button>
       <button class="btn btn-secondary" onclick="document.getElementById('import-json').click()">📥 Restaurer depuis JSON<input type="file" id="import-json" accept=".json" style="display:none" onchange="restoreDB(this)"></button>
-      <button class="btn btn-secondary" onclick="fetchAllMissingPosters()">🖼 Récupérer les posters manquants</button>
       <button class="btn btn-secondary" onclick="cleanWatchLog()">🧹 Nettoyer le watchLog</button>
       <button class="btn btn-danger" onclick="clearDB()">🗑 Effacer toutes les données</button>
     </div>
