@@ -306,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.9.1';
+const APP_VERSION = 'v3.9.2';
 
 function loadDB() {
   try {
@@ -5129,10 +5129,10 @@ window._openSagaCards = window._openSagaCards || new Set();
 
 function sagasPage(el, actions) {
   actions.innerHTML = `<button class="btn btn-primary" onclick="openSagaForm()">＋ Nouvelle saga</button>`;
-  let sortMode = 'alpha-asc';
+  let sortMode = 'date-asc';
   let search = '';
   let typeFilter = 'all'; // all | 2 | 3 | 4plus
-  const sortLabels = {'alpha-asc':'A → Z','alpha-desc':'Z → A','count-desc':'Nb films ↓','count-asc':'Nb films ↑'};
+  const sortLabels = {'date-asc':'Date ↑','alpha-asc':'A → Z','alpha-desc':'Z → A','count-desc':'Nb films ↓','count-asc':'Nb films ↑'};
   const typeFilterLabels = {all:'Tous types', 2:'Dilogies', 3:'Trilogies', '4plus':'Sagas (4+)'};
 
   function draw() {
@@ -5142,7 +5142,8 @@ function sagasPage(el, actions) {
     else if(typeFilter==='3') sagas = sagas.filter(sg=>sagaFilmCount(sg)===3);
     else if(typeFilter==='4plus') sagas = sagas.filter(sg=>sagaFilmCount(sg)>=4);
 
-    if(sortMode==='alpha-asc') sagas.sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+    if(sortMode==='date-asc') sagas.sort((a,b)=>{ const ya=parseInt((a.films[0]||{}).year)||9999, yb=parseInt((b.films[0]||{}).year)||9999; return ya-yb; });
+    else if(sortMode==='alpha-asc') sagas.sort((a,b)=>a.name.localeCompare(b.name,'fr'));
     else if(sortMode==='alpha-desc') sagas.sort((a,b)=>b.name.localeCompare(a.name,'fr'));
     else if(sortMode==='count-desc') sagas.sort((a,b)=>sagaFilmCount(b)-sagaFilmCount(a));
     else if(sortMode==='count-asc') sagas.sort((a,b)=>sagaFilmCount(a)-sagaFilmCount(b));
