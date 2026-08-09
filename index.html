@@ -310,7 +310,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.0.4';
+const APP_VERSION = 'v4.0.5';
 
 function loadDB() {
   try {
@@ -2112,15 +2112,22 @@ function dashboard(el, actions) {
 function initWLSwipe(el) {
   if(!el || el._swipeInited) return;
   el._swipeInited = true;
-  let startX=0, startY=0;
-  el.addEventListener('touchstart', e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; }, {passive:true});
+  let startX=0, startY=0, moved=false;
+  el.addEventListener('touchstart', e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; moved=false; }, {passive:true});
+  el.addEventListener('touchmove', e=>{
+    const dx=e.touches[0].clientX-startX, dy=e.touches[0].clientY-startY;
+    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>8){ e.preventDefault(); e.stopPropagation(); moved=true; }
+  }, {passive:false});
   el.addEventListener('touchend', e=>{
+    if(!moved) return;
+    e.stopPropagation();
     const dx=e.changedTouches[0].clientX-startX, dy=e.changedTouches[0].clientY-startY;
-    if(Math.abs(dx)>Math.abs(dy) && Math.abs(dx)>50){
+    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){
       const cur=window._wlTab||'films';
-      if(dx<0 && cur==='films') setWLTab('series');
-      else if(dx>0 && cur==='series') setWLTab('films');
+      if(dx<0&&cur==='films') setWLTab('series');
+      else if(dx>0&&cur==='series') setWLTab('films');
     }
+    moved=false;
   }, {passive:true});
 }
 
@@ -2157,22 +2164,24 @@ function initDashSwipe() {
   const panels = document.querySelector('.dash-panels');
   if(!panels || panels._swipeInited) return;
   panels._swipeInited = true;
-  let startX = 0, startY = 0, isDragging = false;
+  let startX = 0, startY = 0, moved = false;
   panels.addEventListener('touchstart', e=>{
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
-    isDragging = true;
+    moved = false;
   }, {passive:true});
   panels.addEventListener('touchmove', e=>{
-    if(!isDragging) return;
     const dx = e.touches[0].clientX - startX;
     const dy = e.touches[0].clientY - startY;
-    // Only intercept horizontal swipes
-    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) e.preventDefault();
+    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+      e.preventDefault();
+      e.stopPropagation();
+      moved = true;
+    }
   }, {passive:false});
   panels.addEventListener('touchend', e=>{
-    if(!isDragging) return;
-    isDragging = false;
+    if(!moved) return;
+    e.stopPropagation();
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
     if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
@@ -2180,6 +2189,7 @@ function initDashSwipe() {
       if(dx < 0 && cur === 'films') setDashMobileTab('series');
       else if(dx > 0 && cur === 'series') setDashMobileTab('films');
     }
+    moved = false;
   }, {passive:true});
 }
 
@@ -4077,26 +4087,28 @@ function watchlistPage(el, actions) {
     const tab=window._wlTab;
     const wFilms=(DB.watchlist||[]).filter(w=>w.type==='film');
     const wSeries=(DB.watchlist||[]).filter(w=>w.type==='serie');
-    const list=tab==='films'?wFilms:wSeries;
     el.innerHTML=`
     <div class="tabs">
       <button class="tab-btn ${tab==='films'?'active':''}" onclick="setWLTab('films')">🎬 Films (${wFilms.length})</button>
       <button class="tab-btn ${tab==='series'?'active':''}" onclick="setWLTab('series')">📺 Séries (${wSeries.length})</button>
     </div>
-    <div id="wl-content" style="transition:opacity 0.2s ease">
-    ${list.length===0?`<div style="text-align:center;padding:60px 20px;color:var(--text-dim)">
-      <div style="font-size:40px;margin-bottom:12px">🔖</div>
-      <div style="font-size:15px;margin-bottom:6px">Aucun ${tab==='films'?'film':'série'} en watchlist</div>
-      <div style="font-size:13px">Ajoutez des titres à regarder prochainement.</div>
-    </div>`:`<div class="media-list">${list.map(w=>watchlistRow(w)).join('')}</div>`}
+    <div style="overflow:hidden;position:relative">
+      <div id="wl-track" style="display:flex;transition:transform 0.3s cubic-bezier(.4,0,.2,1);will-change:transform;transform:translateX(${tab==='films'?'0':'-100'}%)">
+        <div style="min-width:100%">${wFilms.length===0?`<div style="text-align:center;padding:60px 20px;color:var(--text-dim)"><div style="font-size:40px;margin-bottom:12px">🔖</div><div style="font-size:15px;margin-bottom:6px">Aucun film en watchlist</div><div style="font-size:13px">Ajoutez des titres à regarder prochainement.</div></div>`:`<div class="media-list">${wFilms.map(w=>watchlistRow(w)).join('')}</div>`}</div>
+        <div style="min-width:100%">${wSeries.length===0?`<div style="text-align:center;padding:60px 20px;color:var(--text-dim)"><div style="font-size:40px;margin-bottom:12px">🔖</div><div style="font-size:15px;margin-bottom:6px">Aucune série en watchlist</div><div style="font-size:13px">Ajoutez des titres à regarder prochainement.</div></div>`:`<div class="media-list">${wSeries.map(w=>watchlistRow(w)).join('')}</div>`}
+        </div>
+      </div>
     </div>`;
     initWLSwipe(el);
   }
   window.setWLTab=(t)=>{
     if(t===window._wlTab) return;
-    const cont=document.getElementById('wl-content');
-    if(cont){ cont.style.opacity='0'; setTimeout(()=>{ window._wlTab=t; draw(); const c2=document.getElementById('wl-content'); if(c2){c2.style.opacity='0';requestAnimationFrame(()=>{c2.style.opacity='1';});} },150); }
-    else { window._wlTab=t; draw(); }
+    window._wlTab=t;
+    // Update tab buttons
+    el.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', (b.textContent.includes('Films')&&t==='films')||(b.textContent.includes('Séries')&&t==='series')));
+    // Slide track
+    const track=document.getElementById('wl-track');
+    if(track) track.style.transform=`translateX(${t==='films'?'0':'-100'}%)`;
   };
   window._wlDraw=draw;
   draw();
