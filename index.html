@@ -245,8 +245,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
   .dash-mobile-tabs{display:flex;gap:4px;background:var(--surface2);border-radius:var(--radius);padding:4px;margin-bottom:16px;}
   .dash-mobile-tab{flex:1;padding:9px 12px;border-radius:6px;border:none;cursor:pointer;font-family:var(--font-ui);font-size:13px;font-weight:600;background:transparent;color:var(--text-dim);transition:all .15s;}
   .dash-mobile-tab.active{background:var(--surface);color:var(--gold);}
-  .dash-side{display:none;}
-  .dash-side.dash-active{display:flex!important;}
+  .dash-panels{overflow:hidden;position:relative;}
+  .dash-panels-track{display:flex;transition:transform 0.3s cubic-bezier(.4,0,.2,1);will-change:transform;}
+  .dash-side{min-width:100%;display:flex;flex-direction:column;gap:16px;}
 }
 .expand-icon{cursor:pointer;user-select:none;color:var(--gold);}
 .show-more-btn{text-align:center;padding:8px;font-size:12px;color:var(--gold);cursor:pointer;border-top:1px solid var(--border);}
@@ -309,7 +310,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.0.3';
+const APP_VERSION = 'v4.0.4';
 
 function loadDB() {
   try {
@@ -1964,7 +1965,9 @@ function dashboard(el, actions) {
       <button class="dash-mobile-tab" data-dashtab="series" onclick="setDashMobileTab('series')">📺 Séries</button>
     </div>
     <div class="dash-split">
-      <div class="dash-side dash-active" data-dashside="films">
+      <div class="dash-panels">
+        <div class="dash-panels-track" id="dash-panels-track">
+          <div class="dash-side" data-dashside="films">
         <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">🎬 Films</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="stat-card"><div class="stat-val">${films.length}</div><div class="stat-label">Films vus</div></div>
@@ -2094,8 +2097,31 @@ function dashboard(el, actions) {
           ${statusPieHTML}
         </div>
       </div>
+        </div><!-- end dash-panels-track -->
+      </div><!-- end dash-panels -->
     </div>
   </div>`;
+  // Init swipe + set initial position after render
+  requestAnimationFrame(()=>{
+    const track = document.getElementById('dash-panels-track');
+    if(track) track.style.transform = 'translateX(0%)';
+    initDashSwipe();
+  });
+}
+
+function initWLSwipe(el) {
+  if(!el || el._swipeInited) return;
+  el._swipeInited = true;
+  let startX=0, startY=0;
+  el.addEventListener('touchstart', e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; }, {passive:true});
+  el.addEventListener('touchend', e=>{
+    const dx=e.changedTouches[0].clientX-startX, dy=e.changedTouches[0].clientY-startY;
+    if(Math.abs(dx)>Math.abs(dy) && Math.abs(dx)>50){
+      const cur=window._wlTab||'films';
+      if(dx<0 && cur==='films') setWLTab('series');
+      else if(dx>0 && cur==='series') setWLTab('films');
+    }
+  }, {passive:true});
 }
 
 function toggleMore(id, btn) {
@@ -2118,14 +2144,43 @@ function toggleContinueMore() {
 // breakpoint where the layout collapses to a single column.
 function setDashMobileTab(which) {
   document.querySelectorAll('.dash-mobile-tab').forEach(t=>t.classList.toggle('active', t.dataset.dashtab===which));
-  document.querySelectorAll('.dash-side').forEach(s=>{
-    if(s.dataset.dashside===which) s.classList.add('dash-active');
-    else s.classList.remove('dash-active');
-  });
-  // Scroll back to top of the content area when switching, since the
-  // previous panel may have been scrolled deep into its tables.
+  const track = document.getElementById('dash-panels-track');
+  if(track) {
+    const idx = which === 'films' ? 0 : 1;
+    track.style.transform = `translateX(-${idx * 100}%)`;
+  }
   const content = document.getElementById('content');
   if(content) content.scrollTop = 0;
+}
+
+function initDashSwipe() {
+  const panels = document.querySelector('.dash-panels');
+  if(!panels || panels._swipeInited) return;
+  panels._swipeInited = true;
+  let startX = 0, startY = 0, isDragging = false;
+  panels.addEventListener('touchstart', e=>{
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    isDragging = true;
+  }, {passive:true});
+  panels.addEventListener('touchmove', e=>{
+    if(!isDragging) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    // Only intercept horizontal swipes
+    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) e.preventDefault();
+  }, {passive:false});
+  panels.addEventListener('touchend', e=>{
+    if(!isDragging) return;
+    isDragging = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      const cur = document.querySelector('.dash-mobile-tab.active')?.dataset.dashtab || 'films';
+      if(dx < 0 && cur === 'films') setDashMobileTab('series');
+      else if(dx > 0 && cur === 'series') setDashMobileTab('films');
+    }
+  }, {passive:true});
 }
 
 function fireworksInModal(sid) {
@@ -4028,13 +4083,21 @@ function watchlistPage(el, actions) {
       <button class="tab-btn ${tab==='films'?'active':''}" onclick="setWLTab('films')">🎬 Films (${wFilms.length})</button>
       <button class="tab-btn ${tab==='series'?'active':''}" onclick="setWLTab('series')">📺 Séries (${wSeries.length})</button>
     </div>
+    <div id="wl-content" style="transition:opacity 0.2s ease">
     ${list.length===0?`<div style="text-align:center;padding:60px 20px;color:var(--text-dim)">
       <div style="font-size:40px;margin-bottom:12px">🔖</div>
       <div style="font-size:15px;margin-bottom:6px">Aucun ${tab==='films'?'film':'série'} en watchlist</div>
       <div style="font-size:13px">Ajoutez des titres à regarder prochainement.</div>
-    </div>`:`<div class="media-list">${list.map(w=>watchlistRow(w)).join('')}</div>`}`;
+    </div>`:`<div class="media-list">${list.map(w=>watchlistRow(w)).join('')}</div>`}
+    </div>`;
+    initWLSwipe(el);
   }
-  window.setWLTab=(t)=>{ window._wlTab=t; draw(); };
+  window.setWLTab=(t)=>{
+    if(t===window._wlTab) return;
+    const cont=document.getElementById('wl-content');
+    if(cont){ cont.style.opacity='0'; setTimeout(()=>{ window._wlTab=t; draw(); const c2=document.getElementById('wl-content'); if(c2){c2.style.opacity='0';requestAnimationFrame(()=>{c2.style.opacity='1';});} },150); }
+    else { window._wlTab=t; draw(); }
+  };
   window._wlDraw=draw;
   draw();
 }
