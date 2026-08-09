@@ -178,7 +178,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .autocomplete-item{padding:8px 12px;cursor:pointer;font-size:13px;}
 .autocomplete-item:hover{background:var(--surface3);color:var(--gold);}
 .progress-bar{height:6px;background:var(--surface3);border-radius:3px;overflow:hidden;}
-.progress-fill{height:100%;border-radius:3px;transition:width .3s;}
+.progress-fill{height:100%;border-radius:3px;}
 .progress-fill.gold{background:var(--gold);}
 .progress-fill.green{background:var(--green);}
 .badge{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;display:inline-block;}
@@ -210,8 +210,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .ep-row-seen{background:rgba(232,196,106,.08);border-color:rgba(232,196,106,.15);}
 .ep-row-unseen{background:var(--surface3);}
 .ep-row:hover{border-color:var(--gold-dim);}
-.ep-seen-dot{width:10px;height:10px;border-radius:50%;background:var(--gold);flex-shrink:0;}
-.ep-unseen-dot{width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--border);flex-shrink:0;}
+.ep-seen-dot{width:10px;height:10px;border-radius:50%;background:var(--gold);flex-shrink:0;transition:background 0.2s,border 0.2s;}
+.ep-unseen-dot{width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--border);flex-shrink:0;transition:background 0.2s,border 0.2s;}
 .ep-row-label{flex:1;}
 .ep-row-selected{background:rgba(74,158,255,.15)!important;border-color:#4a9eff!important;}
 .ep-btn-selected{outline:2px solid #4a9eff;outline-offset:1px;}
@@ -226,8 +226,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 .search-wrap input{padding-right:30px;}
 .drop-zone{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:40px;text-align:center;cursor:pointer;transition:border-color .2s;}
 .drop-zone:hover{border-color:var(--gold);}
-.continue-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;gap:14px;}
+.continue-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;gap:14px;transition:box-shadow 0.3s ease;}
 .continue-card-done{background:var(--surface2);border:1px solid var(--gold-dim);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;justify-content:center;min-height:80px;position:relative;overflow:hidden;}
+.progress-fill{transition:width 0.5s cubic-bezier(.4,0,.2,1);}
+@keyframes slideInFromTop{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeOutShrink{0%{opacity:1;max-height:200px;margin:0}100%{opacity:0;max-height:0;margin:0;padding:0}}
 @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(80px) rotate(720deg);opacity:0}}
 @keyframes completionPop{0%{transform:scale(0.8);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
 .continue-info{flex:1;}
@@ -306,7 +309,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.9.4';
+const APP_VERSION = 'v4.0.0';
 
 function loadDB() {
   try {
@@ -670,14 +673,14 @@ function knownGenres() {
 
 // results list inside `containerId`. Calls onPick(result) when the user
 // picks a result (result = raw TMDB object with .id, .title/.name, etc).
-function renderTmdbSearchBox(containerId, type, onPick) {
+function renderTmdbSearchBox(containerId, type, onPick, initialQuery) {
   const container = document.getElementById(containerId);
   if(!container) return;
   container.innerHTML = `
     <div class="tmdb-search-wrap">
       <div class="search-wrap">
         <span class="search-icon">🔎</span>
-        <input class="form-input" id="${containerId}-input" placeholder="Rechercher sur TMDB..." style="padding-left:34px">
+        <input class="form-input" id="${containerId}-input" placeholder="Rechercher sur TMDB..." style="padding-left:34px" value="${esc(initialQuery||'')}">
         <span class="search-clear" id="${containerId}-clear">✕</span>
       </div>
       <div id="${containerId}-results" style="margin-top:8px"></div>
@@ -727,6 +730,11 @@ function renderTmdbSearchBox(containerId, type, onPick) {
   clearBtn.addEventListener('click', ()=>{
     input.value=''; clearBtn.style.display='none'; resultsEl.innerHTML='';
   });
+  // Auto-search if initial query provided
+  if(initialQuery) {
+    clearBtn.style.display = 'block';
+    doSearch(initialQuery);
+  }
 }
 
 
@@ -1928,7 +1936,7 @@ function dashboard(el, actions) {
         <div class="continue-ep">${esc(epLabel)}</div>
         <div style="margin-top:6px">
           <div class="progress-bar"><div class="progress-fill gold" style="width:${pct}%"></div></div>
-          <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% <span style="opacity:.7">(${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})</span></div>
+          <div class="continue-count" style="font-size:11px;color:var(--text-dim);margin-top:3px">${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% <span style="opacity:.7">(${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})</span></div>
         </div>
       </div>
       ${nextEp?`<button class="btn btn-primary btn-sm" onclick="dashMarkEpSeen('${s.id}',${nextEp.si},${nextEp.ei})">✓ Vu</button>`:''}
@@ -2350,6 +2358,113 @@ function findNextEpisode(s) {
   }
   return null;
 }
+function animateContinueList(sid, onComplete) {
+  const list = document.getElementById('continue-list');
+  if(!list) { onComplete && onComplete(); return; }
+
+  // Compute new order
+  const allSeries = DB.series;
+  const newInProgress = allSeries.filter(s=>!s.abandoned).filter(s=>{
+    const seen=serieSeenEps(s), total=serieTotalEps(s);
+    if(seen===0 || seen>=total) return false;
+    return findNextEpisode(s) !== null;
+  }).sort((a,b)=>{
+    if(a.id===_lastInteractedSerieId) return -1;
+    if(b.id===_lastInteractedSerieId) return 1;
+    return (b.lastInteracted||0)-(a.lastInteracted||0);
+  }).slice(0,4);
+
+  const newIds = newInProgress.map(s=>s.id);
+  const cards = [...list.querySelectorAll('.continue-card,.continue-card-done')];
+  const oldIds = cards.map(c=>c.id.replace('continue-card-',''));
+
+  // Record positions before change (FLIP step 1: First)
+  const firstRects = {};
+  cards.forEach(c=>{ firstRects[c.id] = c.getBoundingClientRect(); });
+
+  // Cards that disappear (were in old but not in new)
+  const removedIds = oldIds.filter(id=>!newIds.includes(id) && id!==sid+'_done');
+  // Cards that stay
+  const keptIds = oldIds.filter(id=>newIds.includes(id));
+  // New cards
+  const addedIds = newIds.filter(id=>!oldIds.includes(id));
+
+  // Update in-place cards content (progress, ep label)
+  keptIds.forEach(id=>{
+    const s = DB.series.find(x=>x.id===id);
+    if(!s) return;
+    const card = document.getElementById('continue-card-'+id);
+    if(!card) return;
+    const nextEp = findNextEpisode(s);
+    const pct = Math.round(serieSeenEps(s)/serieTotalEps(s)*100);
+    const fill = card.querySelector('.progress-fill');
+    if(fill) {
+      const newPct = pct+'%';
+      if(fill.style.width !== newPct) {
+        requestAnimationFrame(()=>{ fill.style.width = newPct; });
+      }
+    }
+    const epDiv = card.querySelector('.continue-ep');
+    if(epDiv && nextEp) {
+      const epObj = s.seasons[nextEp.si]?.episodes[nextEp.ei];
+      epDiv.textContent = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
+    }
+    const countDiv = card.querySelector('.continue-count');
+    if(countDiv) countDiv.textContent = `${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% (${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})`;
+    const btn = card.querySelector('.btn-primary');
+    if(btn && nextEp) btn.setAttribute('onclick', `dashMarkEpSeen('${id}',${nextEp.si},${nextEp.ei})`);
+  });
+
+  // Reorder/add DOM nodes to match new order
+  newInProgress.forEach(s=>{
+    const existing = document.getElementById('continue-card-'+s.id);
+    if(existing) {
+      list.appendChild(existing); // moves to end in new order
+    } else {
+      // New card — add hidden first
+      const div = document.createElement('div');
+      div.innerHTML = continueCardHTML(s);
+      const newCard = div.firstElementChild;
+      newCard.style.opacity = '0';
+      list.appendChild(newCard);
+    }
+  });
+
+  // Remove cards no longer in list
+  removedIds.forEach(id=>{
+    const card = document.getElementById('continue-card-'+id);
+    if(card && card.id !== 'continue-card-'+sid) card.remove();
+  });
+
+  // FLIP step 2: Last — record new positions
+  const allNewCards = [...list.querySelectorAll('.continue-card,.continue-card-done')];
+  allNewCards.forEach(card=>{
+    const first = firstRects[card.id];
+    const last = card.getBoundingClientRect();
+    if(first) {
+      const dy = first.top - last.top;
+      if(Math.abs(dy) > 1) {
+        // Invert
+        card.style.transform = `translateY(${dy}px)`;
+        card.style.transition = 'none';
+        // Play
+        requestAnimationFrame(()=>{
+          card.style.transition = 'transform 0.35s cubic-bezier(.4,0,.2,1), opacity 0.3s ease';
+          card.style.transform = '';
+        });
+      }
+    } else {
+      // New card — fade in
+      requestAnimationFrame(()=>{
+        card.style.transition = 'opacity 0.3s ease 0.15s';
+        card.style.opacity = '1';
+      });
+    }
+  });
+
+  if(onComplete) setTimeout(onComplete, 400);
+}
+
 function dashMarkEpSeen(sid, si, ei) {
   const s = DB.series.find(x=>x.id===sid);
   if(!s) return;
@@ -2424,7 +2539,7 @@ function dashMarkEpSeen(sid, si, ei) {
           <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${esc(s.title)} — ${subMsg}</div>
         </div>`;
 
-      // After animation, fade out then refresh dashboard
+      // After animation, fade out then animated re-order
       setTimeout(()=>{
         card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
         card.style.opacity = '0';
@@ -2436,21 +2551,13 @@ function dashMarkEpSeen(sid, si, ei) {
           setDashMobileTab(activeDashTab);
           if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
         }, 500);
-      }, 2200);
+      }, 3000);
       return;
     }
   }
 
-  // Normal refresh (no completion animation)
-  const contentEl = document.getElementById('content');
-  const scrollPos = contentEl ? contentEl.scrollTop : 0;
-  render('dashboard');
-  setDashMobileTab(activeDashTab);
-  if(contentEl && scrollPos > 0) {
-    requestAnimationFrame(()=>{
-      requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; });
-    });
-  }
+  // Animated in-place update (no full re-render)
+  animateContinueList(sid);
 }
 
 // ============================================================
@@ -2563,7 +2670,7 @@ function searchTmdbPosterForFilm(id) {
       if(data.poster_path) { f.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path; saveDB(); closeModal(); render('films'); }
       else alert('Aucun poster disponible pour ce film.');
     } catch(e) { alert('Erreur.'); }
-  });
+  }, f.title + (f.year ? ' '+f.year : ''));
 }
 
 async function fetchTmdbPosterForSerie(id) {
@@ -2592,7 +2699,7 @@ function searchTmdbPosterForSerie(id) {
       if(data.poster_path) { s.poster = 'https://image.tmdb.org/t/p/w300'+data.poster_path; saveDB(); closeModal(); refreshSerieDetailModal(id); }
       else alert('Aucun poster disponible pour cette série.');
     } catch(e) { alert('Erreur.'); }
-  });
+  }, s.title);
 }
 
 function deleteFilm(id) {
@@ -2983,7 +3090,23 @@ function serieDetailBodyHTML(s) {
 function refreshSerieDetailModal(sid) {
   const s = DB.series.find(x=>x.id===sid); if(!s) return;
   const body = document.getElementById('serie-detail-body-'+sid);
-  if(body) body.innerHTML = serieDetailBodyHTML(s);
+  if(!body) return;
+  const seen = serieSeenEps(s), total = serieTotalEps(s);
+  const pct = total ? Math.round(seen/total*100) : 0;
+  // Set bar to 0 before innerHTML so transition plays
+  const oldFill = body.querySelector('.progress-fill');
+  const oldWidth = oldFill ? oldFill.style.width : '0%';
+  body.innerHTML = serieDetailBodyHTML(s);
+  // Restore old width then animate to new width
+  const newFill = body.querySelector('.progress-fill');
+  if(newFill && oldWidth !== pct+'%') {
+    newFill.style.transition = 'none';
+    newFill.style.width = oldWidth;
+    requestAnimationFrame(()=>{
+      newFill.style.transition = '';
+      requestAnimationFrame(()=>{ newFill.style.width = pct+'%'; });
+    });
+  }
 }
 
 async function refreshSerieFromTmdbInModal(sid) {
@@ -3148,7 +3271,7 @@ function updateSerieRowProgress(sid){
   const pct=total?Math.round(seen/total*100):0;
   const pf=row.querySelector('.progress-fill');
   const pl=row.querySelector('.progress-bar + div');
-  if(pf){pf.style.width=pct+'%'; pf.className='progress-fill '+(pct===100?'green':'gold');}
+  if(pf){ requestAnimationFrame(()=>{ pf.style.width=pct+'%'; pf.className='progress-fill '+(pct===100?'green':'gold'); }); }
   if(pl) pl.textContent=`${seen}/${total} épisodes — ${pct}% • ${fmtDuration(serieSeenMin(s))} vues`;
 }
 
@@ -3417,7 +3540,10 @@ function patchSerieDetailHeader(sid) {
   const pct = total ? Math.round(seen/total*100) : 0;
   const pf = body.querySelector('.progress-fill');
   const pl = body.querySelector('.progress-bar + div');
-  if(pf){ pf.style.width = pct+'%'; pf.className = 'progress-fill '+(pct===100?'green':'gold'); }
+  if(pf) {
+    const newW = pct+'%';
+    requestAnimationFrame(()=>{ pf.style.width = newW; pf.className = 'progress-fill '+(pct===100?'green':'gold'); });
+  }
   if(pl) pl.textContent = `${seen}/${total} épisodes — ${pct}% • ${fmtDuration(serieSeenMin(s))} vues`;
 }
 
@@ -5184,10 +5310,19 @@ function restoreDB(input){if(!input.files[0]) return;if(!confirm('Remplacer tout
 async function fetchAllMissingPosters() {
   const filmsToFetch = DB.films.filter(f=>!f.poster && f.tmdbId);
   const seriesToFetch = DB.series.filter(s=>!s.poster && s.tmdbId);
-  const total = filmsToFetch.length + seriesToFetch.length;
-  if(total === 0) { alert('Tous les films et séries avec un lien TMDB ont déjà un poster.'); return; }
-  if(!confirm(`Récupérer les posters manquants depuis TMDB ?\n${filmsToFetch.length} film(s) et ${seriesToFetch.length} série(s) concerné(s).`)) return;
+  const filmsManual = DB.films.filter(f=>!f.poster && !f.tmdbId);
+  const seriesManual = DB.series.filter(s=>!s.poster && !s.tmdbId);
+  const autoTotal = filmsToFetch.length + seriesToFetch.length;
+  const manualTotal = filmsManual.length + seriesManual.length;
 
+  if(autoTotal === 0 && manualTotal === 0) { alert('Tous les films et séries ont déjà un poster.'); return; }
+
+  let msg = 'Récupérer les posters manquants depuis TMDB ?\n';
+  if(autoTotal) msg += `\nAutomatique : ${filmsToFetch.length} film(s) et ${seriesToFetch.length} série(s) avec lien TMDB.`;
+  if(manualTotal) msg += `\nManuel (après) : ${filmsManual.length} film(s) et ${seriesManual.length} série(s) sans lien TMDB.`;
+  if(!confirm(msg)) return;
+
+  // Auto-fetch for items with tmdbId
   let done = 0, errors = 0;
   for(const f of filmsToFetch) {
     try {
@@ -5204,7 +5339,55 @@ async function fetchAllMissingPosters() {
     } catch(e) { errors++; }
   }
   saveDB();
-  alert(`Terminé : ${done} poster(s) récupéré(s)${errors?`, ${errors} erreur(s)`:'.'}`);
+
+  // Show manual search modal for items without tmdbId
+  const remaining = [
+    ...DB.films.filter(f=>!f.poster && !f.tmdbId).map(f=>({type:'film',id:f.id,title:f.title,year:f.year})),
+    ...DB.series.filter(s=>!s.poster && !s.tmdbId).map(s=>({type:'serie',id:s.id,title:s.title}))
+  ];
+
+  if(remaining.length === 0) {
+    alert(`Terminé : ${done} poster(s) récupéré(s) automatiquement${errors?`, ${errors} erreur(s)`:'.'}`);
+    return;
+  }
+
+  // Open a modal to handle manual items one by one
+  let currentIdx = 0;
+  function showManualPosterModal() {
+    if(currentIdx >= remaining.length) { closeModal(); if(done) alert(`${done} poster(s) récupéré(s).`); return; }
+    const item = remaining[currentIdx];
+    document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <div class="modal-title">🖼 Poster — ${esc(item.title)}${item.year?' ('+item.year+')':''}</div>
+          <div style="font-size:12px;color:var(--text-dim)">${currentIdx+1} / ${remaining.length}</div>
+        </div>
+        <div class="modal-body"><div id="poster-search-box"></div></div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="currentManualIdx++;showNextManualPoster()">Passer →</button>
+          <button class="btn btn-secondary" onclick="closeModal()">Terminer</button>
+        </div>
+      </div>
+    </div>`;
+    window.currentManualIdx = currentIdx;
+    window.showNextManualPoster = ()=>{ currentIdx = window.currentManualIdx+1; showManualPosterModal(); };
+    renderTmdbSearchBox('poster-search-box', item.type==='film'?'movie':'tv', async (picked) => {
+      try {
+        const endpoint = item.type==='film' ? `/movie/${picked.id}` : `/tv/${picked.id}`;
+        const data = await tmdbFetch(endpoint);
+        if(data.poster_path) {
+          const url = 'https://image.tmdb.org/t/p/w300'+data.poster_path;
+          if(item.type==='film') { const f=DB.films.find(x=>x.id===item.id); if(f) f.poster=url; }
+          else { const s=DB.series.find(x=>x.id===item.id); if(s) s.poster=url; }
+          saveDB(); done++;
+        }
+        currentIdx++; showManualPosterModal();
+      } catch(e) { alert('Erreur.'); }
+    }, item.title + (item.year ? ' '+item.year : ''));
+  }
+  if(autoTotal > 0) alert(`${done} poster(s) récupéré(s) automatiquement. On passe maintenant aux ${remaining.length} sans lien TMDB.`);
+  showManualPosterModal();
 }
 
 function cleanWatchLog(){
