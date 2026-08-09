@@ -306,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.9.0';
+const APP_VERSION = 'v3.9.1';
 
 function loadDB() {
   try {
@@ -509,7 +509,8 @@ async function tmdbMovieDetails(id) {
     directors,
     countries,
     duration: data.runtime || 0,
-    genres
+    genres,
+    poster: data.poster_path ? 'https://image.tmdb.org/t/p/w300'+data.poster_path : ''
   };
 }
 async function tmdbSeriesDetails(id) {
@@ -535,7 +536,8 @@ async function tmdbSeriesDetails(id) {
     episodeDuration: (data.episode_run_time && data.episode_run_time[0]) || 0,
     tmdbId: id,
     seasonNumbers,
-    genres
+    genres,
+    poster: data.poster_path ? 'https://image.tmdb.org/t/p/w300'+data.poster_path : ''
   };
 }
 async function tmdbSeasonDetails(tvId, seasonNumber) {
@@ -2675,6 +2677,13 @@ function openFilmForm(id) {
       renderTags('fm-countries-wrap',countries,'fm-countries-input');
       genres.length = 0; (details.genres||[]).forEach(g=>genres.push(g));
       renderTags('fm-genres-wrap',genres,'fm-genres-input');
+      if(details.poster) {
+        window._capturedPoster = details.poster;
+        const prev = document.getElementById('fm-poster-prev');
+        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+        const del = document.getElementById('fm-poster-del');
+        if(del) del.style.display='';
+      }
       renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
       document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
     } catch(e) {
@@ -3758,6 +3767,14 @@ function openSerieForm(id) {
       fetchedSeasons.forEach(sn=>seasons.push(sn));
       renderSeasonsEditor();
 
+      if(details.poster) {
+        window._capturedPoster = details.poster;
+        const prev = document.getElementById('sm-poster-prev');
+        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+        const del = document.getElementById('sm-poster-del');
+        if(del) del.style.display='';
+      }
+
       renderTmdbSearchBox('sm-tmdb-box', 'tv', onTmdbSeriePick);
       document.getElementById('sm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Série, saisons et épisodes pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
     } catch(e) {
@@ -4006,6 +4023,13 @@ function openWatchlistToFilmForm(w) {
       if(details.duration) document.getElementById('fm-duration').value = details.duration;
       if(details.countries.length){ countries.length=0; details.countries.forEach(c=>countries.push(c)); renderTags('fm-countries-wrap',countries,'fm-countries-input'); }
       if(details.genres?.length){ genres.length=0; details.genres.forEach(g=>genres.push(g)); renderTags('fm-genres-wrap',genres,'fm-genres-input'); }
+      if(details.poster) {
+        window._capturedPoster = details.poster;
+        const prev = document.getElementById('fm-poster-prev');
+        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+        const del = document.getElementById('fm-poster-del');
+        if(del) del.style.display='';
+      }
       const banner = document.getElementById('wl2f-banner');
       if(banner) banner.textContent = '✓ Informations récupérées depuis TMDB — vérifiez avant d\'enregistrer.';
     }).catch(()=>{
@@ -4282,6 +4306,13 @@ function openWatchlistToSerieForm(w) {
         seasons.length = 0;
         fetchedSeasons.forEach(sn=>seasons.push(sn));
         renderSeasonsEditor();
+        if(details.poster) {
+          window._capturedPoster = details.poster;
+          const prev = document.getElementById('sm-poster-prev');
+          if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+          const del = document.getElementById('sm-poster-del');
+          if(del) del.style.display='';
+        }
         if(banner) banner.textContent = '✓ Série, saisons et épisodes récupérés depuis TMDB — vérifiez avant d\'enregistrer.';
       } catch(e) {
         const banner = document.getElementById('wl2s-banner');
@@ -5541,6 +5572,13 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
       renderTags('fm-countries-wrap',countries,'fm-countries-input');
       genres.length = 0; (details.genres||[]).forEach(g=>genres.push(g));
       renderTags('fm-genres-wrap',genres,'fm-genres-input');
+      if(details.poster) {
+        window._capturedPoster = details.poster;
+        const prev = document.getElementById('fm-poster-prev');
+        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+        const del = document.getElementById('fm-poster-del');
+        if(del) del.style.display='';
+      }
       renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
       document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
     } catch(e) {
