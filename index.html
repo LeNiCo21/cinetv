@@ -312,7 +312,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.0.7';
+const APP_VERSION = 'v4.0.8';
 
 function loadDB() {
   try {
@@ -4106,23 +4106,39 @@ function watchlistPage(el, actions) {
       <button class="tab-btn ${tab==='films'?'active':''}" onclick="setWLTab('films')">🎬 Films (${wFilms.length})</button>
       <button class="tab-btn ${tab==='series'?'active':''}" onclick="setWLTab('series')">📺 Séries (${wSeries.length})</button>
     </div>
-    <div style="overflow:hidden;position:relative">
-      <div id="wl-track" style="display:flex;transition:transform 0.3s cubic-bezier(.4,0,.2,1);will-change:transform;transform:translateX(${tab==='films'?'0':'-100'}%)">
+    <div style="overflow:hidden;position:relative" id="wl-panels-wrap">
+      <div id="wl-track" style="display:flex;transition:transform 0.3s cubic-bezier(.4,0,.2,1);will-change:transform;transform:translateX(${tab==='films'?'0':'-100'}%);align-items:flex-start">
         <div style="min-width:100%">${wFilms.length===0?`<div style="text-align:center;padding:60px 20px;color:var(--text-dim)"><div style="font-size:40px;margin-bottom:12px">🔖</div><div style="font-size:15px;margin-bottom:6px">Aucun film en watchlist</div><div style="font-size:13px">Ajoutez des titres à regarder prochainement.</div></div>`:`<div class="media-list">${wFilms.map(w=>watchlistRow(w)).join('')}</div>`}</div>
         <div style="min-width:100%">${wSeries.length===0?`<div style="text-align:center;padding:60px 20px;color:var(--text-dim)"><div style="font-size:40px;margin-bottom:12px">🔖</div><div style="font-size:15px;margin-bottom:6px">Aucune série en watchlist</div><div style="font-size:13px">Ajoutez des titres à regarder prochainement.</div></div>`:`<div class="media-list">${wSeries.map(w=>watchlistRow(w)).join('')}</div>`}
         </div>
       </div>
     </div>`;
     initWLSwipe(el);
+    // Set initial height
+    requestAnimationFrame(()=>{
+      const track = document.getElementById('wl-track');
+      const wrap = document.getElementById('wl-panels-wrap');
+      if(track && wrap) {
+        const idx = window._wlTab==='films'?0:1;
+        if(track.children[idx]) wrap.style.height = track.children[idx].scrollHeight+'px';
+      }
+    });
   }
   window.setWLTab=(t)=>{
     if(t===window._wlTab) return;
     window._wlTab=t;
-    // Update tab buttons
     el.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', (b.textContent.includes('Films')&&t==='films')||(b.textContent.includes('Séries')&&t==='series')));
-    // Slide track
     const track=document.getElementById('wl-track');
-    if(track) track.style.transform=`translateX(${t==='films'?'0':'-100'}%)`;
+    if(track){
+      const idx = t==='films'?0:1;
+      track.style.transform=`translateX(${t==='films'?'0':'-100'}%)`;
+      const wlPanels = document.getElementById('wl-panels-wrap');
+      const activeSide = track.children[idx];
+      if(wlPanels && activeSide) {
+        wlPanels.style.height = activeSide.scrollHeight+'px';
+        setTimeout(()=>{ wlPanels.style.height = activeSide.scrollHeight+'px'; }, 320);
+      }
+    }
   };
   window._wlDraw=draw;
   draw();
