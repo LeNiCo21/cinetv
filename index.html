@@ -309,7 +309,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.0.0';
+const APP_VERSION = 'v4.0.1';
 
 function loadDB() {
   try {
@@ -5441,6 +5441,12 @@ function sagasPage(el, actions) {
   const typeFilterLabels = {all:'Tous types', 2:'Dilogies', 3:'Trilogies', '4plus':'Sagas (4+)'};
 
   function draw() {
+    // Sort films chronologically within each saga on every draw
+    (DB.sagas||[]).forEach(sg=>{
+      if(sg.films && sg.films.length > 1) {
+        sg.films.sort((a,b)=>(parseInt(a.year)||9999)-(parseInt(b.year)||9999));
+      }
+    });
     let sagas = [...(DB.sagas||[])];
     if(search) sagas = sagas.filter(sg=>sg.name.toLowerCase().includes(search.toLowerCase()));
     if(typeFilter==='2') sagas = sagas.filter(sg=>sagaFilmCount(sg)===2);
