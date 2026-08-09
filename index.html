@@ -306,7 +306,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v3.8.9';
+const APP_VERSION = 'v3.9.0';
 
 function loadDB() {
   try {
@@ -2088,6 +2088,39 @@ function setDashMobileTab(which) {
   if(content) content.scrollTop = 0;
 }
 
+function fireworksInModal(sid) {
+  const body = document.getElementById('serie-detail-body-'+sid); if(!body) return;
+  const s = DB.series.find(x=>x.id===sid); if(!s) return;
+  const allDone = serieSeenEps(s) >= serieTotalEps(s);
+  const msg = allDone && (s.status==='terminee'||s.status==='annulee') ? '🎉 Série terminée !' : '✨ Série à jour !';
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:50;border-radius:inherit';
+  const colors = ['#E8C46A','#4a9eff','#ff3d9a','#4ade80','#f87171','#fbbf24'];
+  let html = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:51;pointer-events:none">
+    <div style="font-size:22px;font-weight:700;color:var(--gold);text-shadow:0 0 12px rgba(232,196,106,.5);animation:completionPop .4s ease-out">${msg}</div>
+  </div>`;
+  for(let i=0;i<24;i++){
+    const color=colors[i%colors.length];
+    const left=5+Math.random()*90, delay=Math.random()*0.8, dur=0.9+Math.random()*0.6, size=5+Math.random()*7;
+    html+=`<div style="position:absolute;left:${left}%;top:-8px;width:${size}px;height:${size}px;background:${color};border-radius:${Math.random()>.5?'50%':'2px'};animation:confettiFall ${dur}s ${delay}s ease-in forwards"></div>`;
+  }
+  overlay.innerHTML = html;
+  // Make body relatively positioned if not already
+  const bodyPos = getComputedStyle(body).position;
+  if(bodyPos === 'static') body.style.position = 'relative';
+  body.appendChild(overlay);
+  setTimeout(()=>{ overlay.style.transition='opacity 0.5s'; overlay.style.opacity='0'; setTimeout(()=>overlay.remove(), 500); }, 3000);
+}
+
+function syncDashboardInBackground() {
+  // Silently update the dashboard continue-watching if it's rendered
+  const continueList = document.getElementById('continue-list');
+  if(!continueList) return;
+  // Trigger a quiet re-render of just the dashboard
+  const cur = document.querySelector('.nav-item.active')?.dataset.page;
+  if(cur === 'dashboard' || !cur) render('dashboard');
+}
+
 function modalMarkEpSeen(sid, si, ei) {
   const s = DB.series.find(x=>x.id===sid); if(!s) return;
   s.seasons[si].episodes[ei].seen = true;
@@ -2096,6 +2129,10 @@ function modalMarkEpSeen(sid, si, ei) {
   saveDB();
   refreshSerieDetailModal(sid);
   updateSerieRowProgress(sid);
+  // Fire animation if this completed the serie
+  if(findNextEpisode(s) === null) fireworksInModal(sid);
+  // Sync dashboard in background
+  syncDashboardInBackground();
 }
 
 function toggleCreator(i) {
@@ -3264,6 +3301,8 @@ function toggleEp(sid,si,ei) {
   patchEpisodeUI(s, si, ei);
   patchSerieDetailHeader(sid);
   updateSerieRowProgress(sid);
+  if(nowSeen && findNextEpisode(s) === null) fireworksInModal(sid);
+  if(nowSeen) syncDashboardInBackground();
 }
 
 // Patches just the top summary block of an open serie-detail modal (progress
