@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.3.1';
+const APP_VERSION = 'v4.4.0';
 
 function loadDB() {
   try {
@@ -2146,6 +2146,28 @@ function initWLSwipe(el) {
       const cur=window._wlTab||'films';
       if(dx<0&&cur==='films') setWLTab('series');
       else if(dx>0&&cur==='series') setWLTab('films');
+    }
+    moved=false;
+  }, {passive:true});
+}
+
+function initHistorySwipe(el) {
+  if(!el || el._historySwipeInited) return;
+  el._historySwipeInited = true;
+  let startX=0, startY=0, moved=false;
+  el.addEventListener('touchstart', e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; moved=false; }, {passive:true});
+  el.addEventListener('touchmove', e=>{
+    const dx=e.touches[0].clientX-startX, dy=e.touches[0].clientY-startY;
+    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>8){ e.preventDefault(); e.stopPropagation(); moved=true; }
+  }, {passive:false});
+  el.addEventListener('touchend', e=>{
+    if(!moved) return;
+    e.stopPropagation();
+    const dx=e.changedTouches[0].clientX-startX, dy=e.changedTouches[0].clientY-startY;
+    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){
+      const cur=window._historyTab||'films';
+      if(dx<0&&cur==='films') setHistoryTab('series');
+      else if(dx>0&&cur==='series') setHistoryTab('films');
     }
     moved=false;
   }, {passive:true});
@@ -4761,30 +4783,12 @@ function historyPage(el, actions) {
       .replace(/^\w/,c=>c.toUpperCase());
   }
 
-  function draw() {
-    const tab = window._historyTab;
-    const allMonths = getAvailableMonths();
-    if(!window._historyMonth) {
-      window._historyMonth = allMonths[0] || currentYYYYMM();
-    }
-    const curMonth = window._historyMonth;
-
-    // Filter watchLog for current tab and month
+  function buildDayHTML(tab, curMonth) {
     const entries = (DB.watchLog||[]).filter(e=>{
       if(!e.date || !e.date.startsWith(curMonth||'')) return false;
       if(tab==='films') return e.type==='film';
       return e.type==='episode';
     }).sort((a,b)=>b.date.localeCompare(a.date)||0);
-
-    // Count stat for the chosen month
-    let countLabel;
-    if(tab==='films') {
-      const n = entries.length;
-      countLabel = `${n} film${n>1?'s':''} vu${n>1?'s':''}`;
-    } else {
-      const n = new Set(entries.map(e=>e.serieId)).size;
-      countLabel = `${n} série${n>1?'s':''} vue${n>1?'s':''}`;
-    }
 
     // Group by day (keep track of each entry's index in DB.watchLog so it can be deleted precisely)
     const byDay = {};
@@ -4795,68 +4799,107 @@ function historyPage(el, actions) {
     });
     const days = Object.keys(byDay).sort((a,b)=>b.localeCompare(a));
 
-    let dayHTML = '';
     if(days.length === 0) {
-      dayHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text-dim)">
+      return `<div style="text-align:center;padding:60px 20px;color:var(--text-dim)">
         <div style="font-size:40px;margin-bottom:12px">📜</div>
         <div style="font-size:15px">Aucun visionnage enregistré pour ce mois.</div>
       </div>`;
-    } else {
-      days.forEach(day=>{
-        dayHTML += `<div style="margin-bottom:20px">
-          <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">${formatDayLabel(day)}</div>
-          <div style="display:flex;flex-direction:column;gap:6px">
-            ${byDay[day].map(e=>{
-              const logIdx = DB.watchLog.indexOf(e);
-              const deleteBtn = `<div class="media-actions" onclick="event.stopPropagation()">
-                <button class="btn btn-danger btn-xs" onclick="deleteHistoryEntry(${logIdx})" title="Supprimer ce visionnage de l'historique">🗑</button>
-              </div>`;
-              if(tab==='films') {
-                const f = DB.films.find(x=>x.id===e.filmId);
-                if(!f) return '';
-                return `<div class="media-row">
-                  <div class="media-row-main" onclick="openFilmDetail('${f.id}')" style="cursor:pointer">
-                    <div class="media-poster-thumb">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
-                    <div class="media-info">
-                      <div class="media-title">${esc(f.title)}</div>
-                      <div class="media-meta">${esc(joinNames(f.directors||[]))} • ${f.year||'?'} • ${f.duration?f.duration+' min':'–'}</div>
-                    </div>
-                    ${deleteBtn}
-                  </div>
-                </div>`;
-              } else {
-                const s = DB.series.find(x=>x.id===e.serieId);
-                if(!s) return '';
-                const isSpecial = e.seasonIndex===-1;
-                const ep = isSpecial ? s.specials?.[e.episodeIndex] : s.seasons?.[e.seasonIndex]?.episodes?.[e.episodeIndex];
-                const epLabel = isSpecial
-                  ? (ep?.title || `Spécial ${(e.episodeIndex||0)+1}`)
-                  : (ep?.title ? `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1} — ${ep.title}` : `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1}`);
-                return `<div class="media-row">
-                  <div class="media-row-main" onclick="openSerieDetailModal('${s.id}')" style="cursor:pointer">
-                    <div class="media-poster-thumb">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
-                    <div class="media-info">
-                      <div class="media-title">${esc(s.title)}</div>
-                      <div class="media-meta">${esc(epLabel)}</div>
-                    </div>
-                    ${deleteBtn}
-                  </div>
-                </div>`;
-              }
-            }).join('')}
-          </div>
-        </div>`;
-      });
     }
+
+    return days.map(day => `<div style="margin-bottom:20px">
+        <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">${formatDayLabel(day)}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${byDay[day].map(e=>{
+            const logIdx = DB.watchLog.indexOf(e);
+            const deleteBtn = `<div class="media-actions" onclick="event.stopPropagation()">
+              <button class="btn btn-danger btn-xs" onclick="deleteHistoryEntry(${logIdx})" title="Supprimer ce visionnage de l'historique">🗑</button>
+            </div>`;
+            if(tab==='films') {
+              const f = DB.films.find(x=>x.id===e.filmId);
+              if(!f) return '';
+              return `<div class="media-row">
+                <div class="media-row-main" onclick="openFilmDetail('${f.id}')" style="cursor:pointer">
+                  <div class="media-poster-thumb">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
+                  <div class="media-info">
+                    <div class="media-title">${esc(f.title)}</div>
+                    <div class="media-meta">${esc(joinNames(f.directors||[]))} • ${f.year||'?'} • ${f.duration?f.duration+' min':'–'}</div>
+                  </div>
+                  ${deleteBtn}
+                </div>
+              </div>`;
+            } else {
+              const s = DB.series.find(x=>x.id===e.serieId);
+              if(!s) return '';
+              const isSpecial = e.seasonIndex===-1;
+              const ep = isSpecial ? s.specials?.[e.episodeIndex] : s.seasons?.[e.seasonIndex]?.episodes?.[e.episodeIndex];
+              const epLabel = isSpecial
+                ? (ep?.title || `Spécial ${(e.episodeIndex||0)+1}`)
+                : (ep?.title ? `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1} — ${ep.title}` : `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1}`);
+              return `<div class="media-row">
+                <div class="media-row-main" onclick="openSerieDetailModal('${s.id}')" style="cursor:pointer">
+                  <div class="media-poster-thumb">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
+                  <div class="media-info">
+                    <div class="media-title">${esc(s.title)}</div>
+                    <div class="media-meta">${esc(epLabel)}</div>
+                  </div>
+                  ${deleteBtn}
+                </div>
+              </div>`;
+            }
+          }).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  function getCountLabel(tab, curMonth) {
+    const entries = (DB.watchLog||[]).filter(e=>{
+      if(!e.date || !e.date.startsWith(curMonth||'')) return false;
+      if(tab==='films') return e.type==='film';
+      return e.type==='episode';
+    });
+    if(tab==='films') {
+      const n = entries.length;
+      return `${n} film${n>1?'s':''} vu${n>1?'s':''}`;
+    } else {
+      const n = new Set(entries.map(e=>e.serieId)).size;
+      return `${n} série${n>1?'s':''} vue${n>1?'s':''}`;
+    }
+  }
+
+  function draw() {
+    const allMonths = getAvailableMonths();
+    if(!window._historyMonth) {
+      window._historyMonth = allMonths[0] || currentYYYYMM();
+    }
+    const curMonth = window._historyMonth;
+    const tab = window._historyTab;
+
+    const filmsHTML = buildDayHTML('films', curMonth);
+    const seriesHTML = buildDayHTML('series', curMonth);
+    const activeCount = getCountLabel(tab, curMonth);
 
     el.innerHTML = `
       <div class="tabs">
-        <button class="tab-btn ${tab==='films'?'active':''}" onclick="setHistoryTab('films')">🎬 Films</button>
-        <button class="tab-btn ${tab==='series'?'active':''}" onclick="setHistoryTab('series')">📺 Séries</button>
+        <button class="tab-btn ${tab==='films'?'active':''}" data-historytab="films" onclick="setHistoryTab('films')">🎬 Films</button>
+        <button class="tab-btn ${tab==='series'?'active':''}" data-historytab="series" onclick="setHistoryTab('series')">📺 Séries</button>
       </div>
-      <div style="text-align:center;font-size:13px;color:var(--text-dim);font-weight:600;margin:10px 0 14px">${countLabel} en ${formatMonthLabel(curMonth)}</div>
+      <div id="history-count-label" style="text-align:center;font-size:13px;color:var(--text-dim);font-weight:600;margin:10px 0 14px">${activeCount} en ${formatMonthLabel(curMonth)}</div>
       ${monthPickerButton(curMonth)}
-      <div id="history-content">${dayHTML}</div>`;
+      <div style="overflow:hidden;position:relative" id="history-panels-wrap">
+        <div id="history-track" style="display:flex;transition:transform 0.3s cubic-bezier(.4,0,.2,1);will-change:transform;transform:translateX(${tab==='films'?'0':'-100'}%);align-items:flex-start">
+          <div style="min-width:100%">${filmsHTML}</div>
+          <div style="min-width:100%">${seriesHTML}</div>
+        </div>
+      </div>`;
+    initHistorySwipe(el);
+    requestAnimationFrame(()=>{
+      const track = document.getElementById('history-track');
+      const wrap = document.getElementById('history-panels-wrap');
+      if(track && wrap) {
+        const idx = tab==='films'?0:1;
+        if(track.children[idx]) wrap.style.height = track.children[idx].scrollHeight+'px';
+      }
+    });
   }
 
   window.deleteHistoryEntry = (idx)=>{
@@ -4898,7 +4941,24 @@ function historyPage(el, actions) {
     saveDB();
     draw();
   };
-  window.setHistoryTab = (t)=>{ window._historyTab=t; draw(); };
+  window.setHistoryTab = (t)=>{
+    if(t===window._historyTab) return;
+    window._historyTab = t;
+    el.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.historytab===t));
+    const track = document.getElementById('history-track');
+    if(track) {
+      const idx = t==='films'?0:1;
+      track.style.transform = `translateX(${t==='films'?'0':'-100'}%)`;
+      const wrap = document.getElementById('history-panels-wrap');
+      const activeSide = track.children[idx];
+      if(wrap && activeSide) {
+        wrap.style.height = activeSide.scrollHeight+'px';
+        setTimeout(()=>{ wrap.style.height = activeSide.scrollHeight+'px'; }, 320);
+      }
+    }
+    const countEl = document.getElementById('history-count-label');
+    if(countEl) countEl.textContent = `${getCountLabel(t, window._historyMonth)} en ${formatMonthLabel(window._historyMonth)}`;
+  };
   window.setHistoryMonth = (m)=>{ if(m){ window._historyMonth=m; draw(); } };
   window.shiftHistoryMonth = (delta)=>{
     const [y,m] = window._historyMonth.split('-').map(Number);
