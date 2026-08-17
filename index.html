@@ -312,7 +312,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.1.4';
+const APP_VERSION = 'v4.1.5';
 
 function loadDB() {
   try {
@@ -2466,56 +2466,81 @@ function hasFutureUnseenEpisodes(s) {
   return false;
 }
 function animateContinueList(sid) {
-  const card = document.getElementById('continue-card-'+sid);
+  const list = document.getElementById('continue-list');
   const activeDashTab = window._activeDashTab || 'films';
-
-  // If the card will disappear from list after this action, fade it out first
   const s = DB.series.find(x=>x.id===sid);
   const willDisappear = s && findNextEpisode(s) === null;
 
-  if(willDisappear && card) {
-    card.style.pointerEvents = 'none';
-    requestAnimationFrame(()=>{
-      card.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
-      card.style.opacity = '0';
-      card.style.transform = 'scale(0.97)';
-    });
-    setTimeout(()=>{
-      const contentEl = document.getElementById('content');
-      const scrollPos = contentEl ? contentEl.scrollTop : 0;
-      render('dashboard');
-      setDashMobileTab(activeDashTab);
-      if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
-    }, 380);
-  } else {
-    // Card stays — update progress bar and ep label in place
-    if(card && s) {
-      const nextEp = findNextEpisode(s);
-      const pct = Math.round(serieSeenEps(s)/serieTotalEps(s)*100);
-      const fill = card.querySelector('.progress-fill');
-      if(fill) requestAnimationFrame(()=>{ fill.style.width = pct+'%'; });
-      const epDiv = card.querySelector('.continue-ep');
-      if(epDiv && nextEp) {
-        const epObj = s.seasons[nextEp.si]?.episodes[nextEp.ei];
-        epDiv.textContent = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
-      }
-      const countDiv = card.querySelector('.continue-count');
-      if(countDiv) countDiv.textContent = `${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% (${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})`;
-      const btn = card.querySelector('.btn-primary');
-      if(btn && nextEp) btn.setAttribute('onclick', `dashMarkEpSeen('${sid}',${nextEp.si},${nextEp.ei})`);
-    }
-    // If the card should move to top (this series is now most recent), do a clean re-render
-    const list = document.getElementById('continue-list');
-    if(list) {
-      const firstCard = list.querySelector('.continue-card,.continue-card-done');
-      if(firstCard && firstCard.id !== 'continue-card-'+sid) {
+  if(willDisappear) {
+    // Fade out the card, then re-render
+    const card = document.getElementById('continue-card-'+sid);
+    if(card) {
+      card.style.pointerEvents = 'none';
+      requestAnimationFrame(()=>{
+        card.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.97)';
+      });
+      setTimeout(()=>{
         const contentEl = document.getElementById('content');
         const scrollPos = contentEl ? contentEl.scrollTop : 0;
         render('dashboard');
         restoreDashTab(activeDashTab);
         if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
-      }
+      }, 380);
+      return;
     }
+  }
+
+  // FLIP step 1: record current positions
+  const cards = [...(list ? list.querySelectorAll('.continue-card,.continue-card-done') : [])];
+  const firstRects = {};
+  cards.forEach(c=>{ firstRects[c.id] = c.getBoundingClientRect(); });
+
+  // Update content in place
+  const card = list ? document.getElementById('continue-card-'+sid) : null;
+  if(card && s) {
+    const nextEp = findNextEpisode(s);
+    const pct = Math.round(serieSeenEps(s)/serieTotalEps(s)*100);
+    const fill = card.querySelector('.progress-fill');
+    if(fill) requestAnimationFrame(()=>{ fill.style.width = pct+'%'; });
+    const epDiv = card.querySelector('.continue-ep');
+    if(epDiv && nextEp) {
+      const epObj = s.seasons[nextEp.si]?.episodes[nextEp.ei];
+      epDiv.textContent = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
+    }
+    const countDiv = card.querySelector('.continue-count');
+    if(countDiv) countDiv.textContent = `${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% (${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})`;
+    const btn = card.querySelector('.btn-primary');
+    if(btn && nextEp) btn.setAttribute('onclick', `dashMarkEpSeen('${sid}',${nextEp.si},${nextEp.ei})`);
+  }
+
+  // Move card to top if it's the most recently interacted
+  if(list && card) {
+    const firstCard = list.querySelector('.continue-card,.continue-card-done');
+    if(firstCard && firstCard.id !== 'continue-card-'+sid) {
+      list.insertBefore(card, list.firstChild);
+    }
+  }
+
+  // FLIP step 2: animate from old positions to new
+  if(list) {
+    const newCards = [...list.querySelectorAll('.continue-card,.continue-card-done')];
+    newCards.forEach(c=>{
+      const first = firstRects[c.id];
+      if(!first) return;
+      const last = c.getBoundingClientRect();
+      const dy = first.top - last.top;
+      if(Math.abs(dy) > 1) {
+        c.style.transform = `translateY(${dy}px)`;
+        c.style.transition = 'none';
+        requestAnimationFrame(()=>{
+          c.style.transition = 'transform 0.35s cubic-bezier(.4,0,.2,1)';
+          c.style.transform = '';
+          setTimeout(()=>{ c.style.transition = ''; }, 380);
+        });
+      }
+    });
   }
 }
 
