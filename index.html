@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.3.0';
+const APP_VERSION = 'v4.3.1';
 
 function loadDB() {
   try {
@@ -4737,11 +4737,15 @@ function historyPage(el, actions) {
   }
 
   function monthPickerButton(curMonth) {
-    return `<div style="position:relative;margin-bottom:14px">
-      <button class="btn btn-secondary" style="width:100%;justify-content:center;font-weight:600;font-size:14px;padding:10px 14px" onclick="openHistoryMonthPicker()">📅 ${formatMonthLabel(curMonth)}</button>
-      <input type="month" id="history-month-input" value="${curMonth}" tabindex="-1"
-        style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0;padding:0;margin:0"
-        onchange="setHistoryMonth(this.value)">
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <button class="btn btn-secondary" style="padding:10px 14px;flex-shrink:0" onclick="shiftHistoryMonth(-1)" title="Mois précédent">◀</button>
+      <div style="position:relative;flex:1;min-width:0">
+        <button class="btn btn-secondary" style="width:100%;justify-content:center;font-weight:600;font-size:14px;padding:10px 14px" onclick="openHistoryMonthPicker()">📅 ${formatMonthLabel(curMonth)}</button>
+        <input type="month" id="history-month-input" value="${curMonth}" tabindex="-1"
+          style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0;padding:0;margin:0"
+          onchange="setHistoryMonth(this.value)">
+      </div>
+      <button class="btn btn-secondary" style="padding:10px 14px;flex-shrink:0" onclick="shiftHistoryMonth(1)" title="Mois suivant">▶</button>
     </div>`;
   }
 
@@ -4896,6 +4900,12 @@ function historyPage(el, actions) {
   };
   window.setHistoryTab = (t)=>{ window._historyTab=t; draw(); };
   window.setHistoryMonth = (m)=>{ if(m){ window._historyMonth=m; draw(); } };
+  window.shiftHistoryMonth = (delta)=>{
+    const [y,m] = window._historyMonth.split('-').map(Number);
+    const d = new Date(y, (m-1)+delta, 1);
+    window._historyMonth = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    draw();
+  };
   window.openHistoryMonthPicker = ()=>{
     const input = document.getElementById('history-month-input');
     if(!input) return;
