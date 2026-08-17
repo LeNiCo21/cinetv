@@ -284,6 +284,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
     <div class="nav-item" data-page="series"><span class="icon">📺</span>Séries</div>
     <div class="nav-item" data-page="abandoned"><span class="icon">🗄️</span>Abandonnées</div>
     <div class="nav-item" data-page="watchlist"><span class="icon">🔖</span>Watchlist</div>
+    <div class="nav-item" data-page="history"><span class="icon">📜</span>Historique</div>
     <div class="nav-item" data-page="wrapped"><span class="icon">🎁</span>Bilan annuel</div>
     <div class="nav-item" data-page="import"><span class="icon">⚙️</span>Paramètres</div>
   </div>
@@ -312,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.1.5';
+const APP_VERSION = 'v4.2.1';
 
 function loadDB() {
   try {
@@ -776,11 +777,11 @@ function wireSearchBar(id, value, onInput) {
 // ============================================================
 const pageMap = {
   dashboard, films:filmsPage, sagas:sagasPage, series:seriesPage,
-  abandoned:abandonedPage, watchlist:watchlistPage, wrapped:wrappedPage, import:importPage
+  abandoned:abandonedPage, watchlist:watchlistPage, history:historyPage, wrapped:wrappedPage, import:importPage
 };
 const titles = {
   dashboard:'Dashboard', films:'Films', sagas:'Sagas', series:'Séries',
-  abandoned:'Abandonnées', watchlist:'Watchlist', wrapped:'Bilan annuel', import:'Paramètres'
+  abandoned:'Abandonnées', watchlist:'Watchlist', history:'Historique', wrapped:'Bilan annuel', import:'Paramètres'
 };
 
 document.querySelectorAll('.nav-item').forEach(el => {
@@ -2472,9 +2473,13 @@ function animateContinueList(sid) {
   const willDisappear = s && findNextEpisode(s) === null;
 
   if(willDisappear) {
-    // Fade out the card, then re-render
     const card = document.getElementById('continue-card-'+sid);
     if(card) {
+      // Record positions of ALL cards before fade (for FLIP of remaining cards)
+      const allCards = [...(list ? list.querySelectorAll('.continue-card,.continue-card-done') : [])];
+      const flipRects = {};
+      allCards.forEach(c=>{ flipRects[c.id] = c.getBoundingClientRect(); });
+
       card.style.pointerEvents = 'none';
       requestAnimationFrame(()=>{
         card.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
@@ -2486,7 +2491,26 @@ function animateContinueList(sid) {
         const scrollPos = contentEl ? contentEl.scrollTop : 0;
         render('dashboard');
         restoreDashTab(activeDashTab);
-        if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
+        // Animate remaining cards sliding up after re-render
+        requestAnimationFrame(()=>{
+          const newCards = list ? [...document.querySelectorAll('.continue-card,.continue-card-done')] : [];
+          newCards.forEach(c=>{
+            const first = flipRects[c.id];
+            if(!first) return;
+            const last = c.getBoundingClientRect();
+            const dy = first.top - last.top;
+            if(Math.abs(dy) > 1) {
+              c.style.transform = `translateY(${dy}px)`;
+              c.style.transition = 'none';
+              requestAnimationFrame(()=>{
+                c.style.transition = 'transform 0.35s cubic-bezier(.4,0,.2,1)';
+                c.style.transform = '';
+                setTimeout(()=>{ c.style.transition = ''; }, 380);
+              });
+            }
+          });
+          if(contentEl && scrollPos > 0) contentEl.scrollTop = scrollPos;
+        });
       }, 380);
       return;
     }
@@ -2629,11 +2653,37 @@ function dashMarkEpSeen(sid, si, ei) {
         card.style.opacity = '0';
         card.style.transform = 'scale(0.95)';
         setTimeout(()=>{
+          // Record positions of remaining cards before re-render
+          const remainingCards = [...document.querySelectorAll('.continue-card,.continue-card-done')]
+            .filter(c=>c.id !== 'continue-card-'+sid);
+          const flipRects = {};
+          remainingCards.forEach(c=>{ flipRects[c.id] = c.getBoundingClientRect(); });
+
           const contentEl = document.getElementById('content');
           const scrollPos = contentEl ? contentEl.scrollTop : 0;
           render('dashboard');
           restoreDashTab(activeDashTab);
-          if(contentEl && scrollPos > 0) requestAnimationFrame(()=>requestAnimationFrame(()=>{ contentEl.scrollTop = scrollPos; }));
+
+          // Animate remaining cards sliding up
+          requestAnimationFrame(()=>{
+            const newCards = [...document.querySelectorAll('.continue-card,.continue-card-done')];
+            newCards.forEach(c=>{
+              const first = flipRects[c.id];
+              if(!first) return;
+              const last = c.getBoundingClientRect();
+              const dy = first.top - last.top;
+              if(Math.abs(dy) > 1) {
+                c.style.transform = `translateY(${dy}px)`;
+                c.style.transition = 'none';
+                requestAnimationFrame(()=>{
+                  c.style.transition = 'transform 0.35s cubic-bezier(.4,0,.2,1)';
+                  c.style.transform = '';
+                  setTimeout(()=>{ c.style.transition = ''; }, 380);
+                });
+              }
+            });
+            if(contentEl && scrollPos > 0) contentEl.scrollTop = scrollPos;
+          });
         }, 500);
       }, 3000);
       return;
@@ -4662,6 +4712,149 @@ function openWatchlistToSerieForm(w) {
 // ============================================================
 // BILAN ANNUEL — PAGE
 // ============================================================
+function historyPage(el, actions) {
+  actions.innerHTML = '';
+  window._historyTab = window._historyTab || 'films';
+  window._historyMonth = window._historyMonth || null;
+
+  function getAvailableMonths() {
+    const months = new Set();
+    (DB.watchLog||[]).forEach(e=>{ if(e.date) months.add(e.date.slice(0,7)); });
+    return [...months].sort((a,b)=>b.localeCompare(a));
+  }
+
+  function getYears(allMonths) {
+    return [...new Set(allMonths.map(m=>m.slice(0,4)))].sort((a,b)=>b-a);
+  }
+
+  function monthCalendar(allMonths, curMonth) {
+    const years = getYears(allMonths);
+    const curYear = curMonth ? curMonth.slice(0,4) : years[0];
+    const MONTH_ABBR = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+    const monthsInYear = new Set(allMonths.filter(m=>m.startsWith(curYear)).map(m=>m.slice(5,7)));
+
+    const yearNav = years.length > 1 ? `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        ${years.map(y=>`<button class="btn btn-sm ${y===curYear?'btn-primary':'btn-secondary'}" onclick="setHistoryYear('${y}')">${y}</button>`).join('')}
+      </div>` : `<div style="font-size:13px;font-weight:600;color:var(--text-dim);margin-bottom:10px">${curYear}</div>`;
+
+    const grid = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">
+      ${MONTH_ABBR.map((name,i)=>{
+        const mStr = String(i+1).padStart(2,'0');
+        const ym = curYear+'-'+mStr;
+        const hasData = monthsInYear.has(mStr);
+        const isActive = ym === curMonth;
+        return `<button class="btn btn-sm ${isActive?'btn-primary':hasData?'btn-secondary':''}"
+          style="${!hasData?'opacity:.3;cursor:default':''}"
+          onclick="${hasData?`setHistoryMonth('${ym}')`:''}">${name}</button>`;
+      }).join('')}
+    </div>`;
+
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px">
+      ${yearNav}${grid}
+    </div>`;
+  }
+
+  function formatMonthLabel(ym) {
+    const [y,m] = ym.split('-');
+    const names = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    return names[parseInt(m)-1]+' '+y;
+  }
+
+  function formatDayLabel(dateStr) {
+    const d = new Date(dateStr+'T12:00:00');
+    return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})
+      .replace(/^\w/,c=>c.toUpperCase());
+  }
+
+  function draw() {
+    const tab = window._historyTab;
+    const allMonths = getAvailableMonths();
+    if(!window._historyMonth || !allMonths.includes(window._historyMonth)) {
+      window._historyMonth = allMonths[0] || null;
+    }
+    const curMonth = window._historyMonth;
+
+    // Filter watchLog for current tab and month
+    const entries = (DB.watchLog||[]).filter(e=>{
+      if(!e.date || !e.date.startsWith(curMonth||'')) return false;
+      if(tab==='films') return e.type==='film';
+      return e.type==='episode';
+    }).sort((a,b)=>b.date.localeCompare(a.date)||0);
+
+    // Group by day
+    const byDay = {};
+    entries.forEach(e=>{
+      const day = e.date.slice(0,10);
+      if(!byDay[day]) byDay[day]=[];
+      byDay[day].push(e);
+    });
+    const days = Object.keys(byDay).sort((a,b)=>b.localeCompare(a));
+
+    let dayHTML = '';
+    if(days.length === 0) {
+      dayHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text-dim)">
+        <div style="font-size:40px;margin-bottom:12px">📜</div>
+        <div style="font-size:15px">Aucun visionnage enregistré pour ce mois.</div>
+      </div>`;
+    } else {
+      days.forEach(day=>{
+        dayHTML += `<div style="margin-bottom:20px">
+          <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">${formatDayLabel(day)}</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${byDay[day].map(e=>{
+              if(tab==='films') {
+                const f = DB.films.find(x=>x.id===e.filmId);
+                if(!f) return '';
+                return `<div class="media-row" onclick="openFilmDetail('${f.id}')" style="cursor:pointer">
+                  <div class="media-poster">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
+                  <div class="media-row-main">
+                    <div class="media-title">${esc(f.title)}</div>
+                    <div class="media-meta">${esc(joinNames(f.directors||[]))} • ${f.year||'?'} • ${f.duration?f.duration+' min':'–'}</div>
+                  </div>
+                </div>`;
+              } else {
+                const s = DB.series.find(x=>x.id===e.serieId);
+                if(!s) return '';
+                const isSpecial = e.seasonIndex===-1;
+                const ep = isSpecial ? s.specials?.[e.episodeIndex] : s.seasons?.[e.seasonIndex]?.episodes?.[e.episodeIndex];
+                const epLabel = isSpecial
+                  ? (ep?.title || `Spécial ${(e.episodeIndex||0)+1}`)
+                  : (ep?.title ? `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1} — ${ep.title}` : `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1}`);
+                return `<div class="media-row" onclick="openSerieDetailModal('${s.id}')" style="cursor:pointer">
+                  <div class="media-poster">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
+                  <div class="media-row-main">
+                    <div class="media-title">${esc(s.title)}</div>
+                    <div class="media-meta">${esc(epLabel)}</div>
+                  </div>
+                </div>`;
+              }
+            }).join('')}
+          </div>
+        </div>`;
+      });
+    }
+
+    el.innerHTML = `
+      <div class="tabs">
+        <button class="tab-btn ${tab==='films'?'active':''}" onclick="setHistoryTab('films')">🎬 Films</button>
+        <button class="tab-btn ${tab==='series'?'active':''}" onclick="setHistoryTab('series')">📺 Séries</button>
+      </div>
+      ${allMonths.length ? monthCalendar(allMonths, curMonth) : ''}
+      <div id="history-content">${dayHTML}</div>`;
+  }
+
+  window.setHistoryTab = (t)=>{ window._historyTab=t; draw(); };
+  window.setHistoryMonth = (m)=>{ window._historyMonth=m; draw(); };
+  window.setHistoryYear = (y)=>{
+    // Switch to most recent month of that year that has data
+    const allMonths = getAvailableMonths();
+    const monthInYear = allMonths.filter(m=>m.startsWith(y)).sort((a,b)=>b.localeCompare(a));
+    if(monthInYear.length) { window._historyMonth = monthInYear[0]; draw(); }
+  };
+  draw();
+}
+
 function wrappedPage(el, actions) {
   const now = new Date();
   const currentYear = now.getFullYear();
