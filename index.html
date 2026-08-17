@@ -4723,35 +4723,17 @@ function historyPage(el, actions) {
     return [...months].sort((a,b)=>b.localeCompare(a));
   }
 
-  function getYears(allMonths) {
-    return [...new Set(allMonths.map(m=>m.slice(0,4)))].sort((a,b)=>b-a);
+  function currentYYYYMM() {
+    const d = new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   }
 
-  function monthCalendar(allMonths, curMonth) {
-    const years = getYears(allMonths);
-    const curYear = curMonth ? curMonth.slice(0,4) : years[0];
-    const MONTH_ABBR = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
-    const monthsInYear = new Set(allMonths.filter(m=>m.startsWith(curYear)).map(m=>m.slice(5,7)));
-
-    const yearNav = years.length > 1 ? `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        ${years.map(y=>`<button class="btn btn-sm ${y===curYear?'btn-primary':'btn-secondary'}" onclick="setHistoryYear('${y}')">${y}</button>`).join('')}
-      </div>` : `<div style="font-size:13px;font-weight:600;color:var(--text-dim);margin-bottom:10px">${curYear}</div>`;
-
-    const grid = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">
-      ${MONTH_ABBR.map((name,i)=>{
-        const mStr = String(i+1).padStart(2,'0');
-        const ym = curYear+'-'+mStr;
-        const hasData = monthsInYear.has(mStr);
-        const isActive = ym === curMonth;
-        return `<button class="btn btn-sm ${isActive?'btn-primary':hasData?'btn-secondary':''}"
-          style="${!hasData?'opacity:.3;cursor:default':''}"
-          onclick="${hasData?`setHistoryMonth('${ym}')`:''}">${name}</button>`;
-      }).join('')}
-    </div>`;
-
-    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px">
-      ${yearNav}${grid}
+  function monthPickerButton(curMonth) {
+    return `<div style="position:relative;margin-bottom:14px">
+      <button class="btn btn-secondary" style="width:100%;justify-content:center;font-weight:600;font-size:14px;padding:10px 14px" onclick="openHistoryMonthPicker()">📅 ${formatMonthLabel(curMonth)}</button>
+      <input type="month" id="history-month-input" value="${curMonth}" tabindex="-1"
+        style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0;padding:0;margin:0"
+        onchange="setHistoryMonth(this.value)">
     </div>`;
   }
 
@@ -4770,8 +4752,8 @@ function historyPage(el, actions) {
   function draw() {
     const tab = window._historyTab;
     const allMonths = getAvailableMonths();
-    if(!window._historyMonth || !allMonths.includes(window._historyMonth)) {
-      window._historyMonth = allMonths[0] || null;
+    if(!window._historyMonth) {
+      window._historyMonth = allMonths[0] || currentYYYYMM();
     }
     const curMonth = window._historyMonth;
 
@@ -4781,6 +4763,16 @@ function historyPage(el, actions) {
       if(tab==='films') return e.type==='film';
       return e.type==='episode';
     }).sort((a,b)=>b.date.localeCompare(a.date)||0);
+
+    // Count stat for the chosen month
+    let countLabel;
+    if(tab==='films') {
+      const n = entries.length;
+      countLabel = `${n} film${n>1?'s':''} vu${n>1?'s':''}`;
+    } else {
+      const n = new Set(entries.map(e=>e.serieId)).size;
+      countLabel = `${n} série${n>1?'s':''} vue${n>1?'s':''}`;
+    }
 
     // Group by day
     const byDay = {};
@@ -4807,10 +4799,12 @@ function historyPage(el, actions) {
                 const f = DB.films.find(x=>x.id===e.filmId);
                 if(!f) return '';
                 return `<div class="media-row" onclick="openFilmDetail('${f.id}')" style="cursor:pointer">
-                  <div class="media-poster">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
                   <div class="media-row-main">
-                    <div class="media-title">${esc(f.title)}</div>
-                    <div class="media-meta">${esc(joinNames(f.directors||[]))} • ${f.year||'?'} • ${f.duration?f.duration+' min':'–'}</div>
+                    <div class="media-poster-thumb">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
+                    <div class="media-info">
+                      <div class="media-title">${esc(f.title)}</div>
+                      <div class="media-meta">${esc(joinNames(f.directors||[]))} • ${f.year||'?'} • ${f.duration?f.duration+' min':'–'}</div>
+                    </div>
                   </div>
                 </div>`;
               } else {
@@ -4822,10 +4816,12 @@ function historyPage(el, actions) {
                   ? (ep?.title || `Spécial ${(e.episodeIndex||0)+1}`)
                   : (ep?.title ? `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1} — ${ep.title}` : `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1}`);
                 return `<div class="media-row" onclick="openSerieDetailModal('${s.id}')" style="cursor:pointer">
-                  <div class="media-poster">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
                   <div class="media-row-main">
-                    <div class="media-title">${esc(s.title)}</div>
-                    <div class="media-meta">${esc(epLabel)}</div>
+                    <div class="media-poster-thumb">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
+                    <div class="media-info">
+                      <div class="media-title">${esc(s.title)}</div>
+                      <div class="media-meta">${esc(epLabel)}</div>
+                    </div>
                   </div>
                 </div>`;
               }
@@ -4840,17 +4836,19 @@ function historyPage(el, actions) {
         <button class="tab-btn ${tab==='films'?'active':''}" onclick="setHistoryTab('films')">🎬 Films</button>
         <button class="tab-btn ${tab==='series'?'active':''}" onclick="setHistoryTab('series')">📺 Séries</button>
       </div>
-      ${allMonths.length ? monthCalendar(allMonths, curMonth) : ''}
+      <div style="text-align:center;font-size:13px;color:var(--text-dim);font-weight:600;margin:10px 0 14px">${countLabel} en ${formatMonthLabel(curMonth)}</div>
+      ${monthPickerButton(curMonth)}
       <div id="history-content">${dayHTML}</div>`;
   }
 
   window.setHistoryTab = (t)=>{ window._historyTab=t; draw(); };
-  window.setHistoryMonth = (m)=>{ window._historyMonth=m; draw(); };
-  window.setHistoryYear = (y)=>{
-    // Switch to most recent month of that year that has data
-    const allMonths = getAvailableMonths();
-    const monthInYear = allMonths.filter(m=>m.startsWith(y)).sort((a,b)=>b.localeCompare(a));
-    if(monthInYear.length) { window._historyMonth = monthInYear[0]; draw(); }
+  window.setHistoryMonth = (m)=>{ if(m){ window._historyMonth=m; draw(); } };
+  window.openHistoryMonthPicker = ()=>{
+    const input = document.getElementById('history-month-input');
+    if(!input) return;
+    if(input.showPicker) { try { input.showPicker(); return; } catch(e){} }
+    input.focus();
+    input.click();
   };
   draw();
 }
