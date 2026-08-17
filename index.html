@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.2.1';
+const APP_VERSION = 'v4.3.0';
 
 function loadDB() {
   try {
@@ -349,7 +349,15 @@ let _lastInteractedSerieId = null;
 // import, "tout vu"/"tout non vu") deliberately do NOT log anything,
 // since they're historical catch-up, not a real viewing event "today".
 // ============================================================
+function sameWatchIdentity(a, b) {
+  if(a.type !== b.type) return false;
+  if(a.type === 'film') return a.filmId === b.filmId;
+  return a.serieId === b.serieId && a.seasonIndex === b.seasonIndex && a.episodeIndex === b.episodeIndex;
+}
 function logWatch(entry) {
+  // Guard against duplicate entries for the same film/episode (e.g. rapid
+  // unmark/re-mark toggling) so a given viewing only ever appears once.
+  DB.watchLog = DB.watchLog.filter(e=>!sameWatchIdentity(e, entry));
   DB.watchLog.push({ date: new Date().toISOString(), ...entry });
 }
 function unlogWatch(matchFn) {
@@ -4774,7 +4782,7 @@ function historyPage(el, actions) {
       countLabel = `${n} série${n>1?'s':''} vue${n>1?'s':''}`;
     }
 
-    // Group by day
+    // Group by day (keep track of each entry's index in DB.watchLog so it can be deleted precisely)
     const byDay = {};
     entries.forEach(e=>{
       const day = e.date.slice(0,10);
@@ -4795,16 +4803,21 @@ function historyPage(el, actions) {
           <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">${formatDayLabel(day)}</div>
           <div style="display:flex;flex-direction:column;gap:6px">
             ${byDay[day].map(e=>{
+              const logIdx = DB.watchLog.indexOf(e);
+              const deleteBtn = `<div class="media-actions" onclick="event.stopPropagation()">
+                <button class="btn btn-danger btn-xs" onclick="deleteHistoryEntry(${logIdx})" title="Supprimer ce visionnage de l'historique">🗑</button>
+              </div>`;
               if(tab==='films') {
                 const f = DB.films.find(x=>x.id===e.filmId);
                 if(!f) return '';
-                return `<div class="media-row" onclick="openFilmDetail('${f.id}')" style="cursor:pointer">
-                  <div class="media-row-main">
+                return `<div class="media-row">
+                  <div class="media-row-main" onclick="openFilmDetail('${f.id}')" style="cursor:pointer">
                     <div class="media-poster-thumb">${f.poster?`<img src="${f.poster}" alt="">`:'🎬'}</div>
                     <div class="media-info">
                       <div class="media-title">${esc(f.title)}</div>
                       <div class="media-meta">${esc(joinNames(f.directors||[]))} • ${f.year||'?'} • ${f.duration?f.duration+' min':'–'}</div>
                     </div>
+                    ${deleteBtn}
                   </div>
                 </div>`;
               } else {
@@ -4815,13 +4828,14 @@ function historyPage(el, actions) {
                 const epLabel = isSpecial
                   ? (ep?.title || `Spécial ${(e.episodeIndex||0)+1}`)
                   : (ep?.title ? `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1} — ${ep.title}` : `S${(e.seasonIndex||0)+1}E${(e.episodeIndex||0)+1}`);
-                return `<div class="media-row" onclick="openSerieDetailModal('${s.id}')" style="cursor:pointer">
-                  <div class="media-row-main">
+                return `<div class="media-row">
+                  <div class="media-row-main" onclick="openSerieDetailModal('${s.id}')" style="cursor:pointer">
                     <div class="media-poster-thumb">${s.poster?`<img src="${s.poster}" alt="">`:'📺'}</div>
                     <div class="media-info">
                       <div class="media-title">${esc(s.title)}</div>
                       <div class="media-meta">${esc(epLabel)}</div>
                     </div>
+                    ${deleteBtn}
                   </div>
                 </div>`;
               }
@@ -4841,6 +4855,45 @@ function historyPage(el, actions) {
       <div id="history-content">${dayHTML}</div>`;
   }
 
+  window.deleteHistoryEntry = (idx)=>{
+    const entry = DB.watchLog[idx];
+    if(!entry) return;
+    const isFilm = entry.type==='film';
+
+    if(isFilm) {
+      const film = DB.films.find(x=>x.id===entry.filmId);
+      const title = film?.title || 'ce film';
+      if(!confirm(`Supprimer le visionnage de "${title}" de l'historique ?\n\nIl ne sera plus comptabilisé dans le bilan annuel.`)) return;
+      const alsoRemoveFilm = confirm(`Supprimer aussi "${title}" de la liste "Films vus" ?\n\nOK = supprimer le film de la liste\nAnnuler = garder le film dans la liste (seul le visionnage est retiré de l'historique)`);
+      if(alsoRemoveFilm && film) {
+        DB.films = DB.films.filter(f=>f.id!==film.id);
+        DB.watchLog = DB.watchLog.filter(e=>!(e.type==='film' && e.filmId===film.id));
+        // If part of a saga, keep it listed there but mark it back as "non vu"
+        (DB.sagas||[]).forEach(sg=>{
+          const sf = (sg.films||[]).find(x=>x.id===film.id);
+          if(sf) {
+            sf.title = film.title; sf.year = film.year; sf.directors = film.directors;
+            sf.countries = film.countries; sf.duration = film.duration; sf.poster = film.poster;
+            sf.unseen = true;
+          }
+        });
+      } else {
+        DB.watchLog.splice(idx,1);
+      }
+    } else {
+      const s = DB.series.find(x=>x.id===entry.serieId);
+      const title = s?.title || 'cet épisode';
+      if(!confirm(`Supprimer le visionnage de "${title}" de l'historique ?\n\nIl ne sera plus comptabilisé dans le bilan annuel. L'épisode sera aussi marqué comme non vu.`)) return;
+      if(s) {
+        const ep = entry.seasonIndex===-1 ? s.specials?.[entry.episodeIndex] : s.seasons?.[entry.seasonIndex]?.episodes?.[entry.episodeIndex];
+        if(ep) ep.seen = false;
+        s.lastInteracted = Date.now();
+      }
+      DB.watchLog.splice(idx,1);
+    }
+    saveDB();
+    draw();
+  };
   window.setHistoryTab = (t)=>{ window._historyTab=t; draw(); };
   window.setHistoryMonth = (m)=>{ if(m){ window._historyMonth=m; draw(); } };
   window.openHistoryMonthPicker = ()=>{
