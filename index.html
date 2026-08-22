@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.4.3';
+const APP_VERSION = 'v4.4.5';
 
 function loadDB() {
   try {
@@ -2794,7 +2794,7 @@ function filmRow(f) {
       </div>
     </div>
     <div id="fextra-${f.id}" style="display:none" class="media-extra">
-      ${f.synopsis?`<div style="margin-bottom:12px;font-size:13px;color:var(--text-dim);line-height:1.5;font-style:italic">${esc(f.synopsis)}</div>`:''}
+      ${f.synopsis?`<div style="margin-bottom:12px;font-size:13px;color:var(--text-dim);line-height:1.5">${esc(f.synopsis)}</div>`:''}
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
         <div><div class="form-label">Année</div><div>${esc(f.year||'?')}</div></div>
         <div><div class="form-label">Pays</div><div>${esc(joinNames(parseNames(f.countries)))||'–'}</div></div>
@@ -2939,7 +2939,6 @@ function openFilmForm(id) {
     <div class="form-group">
       <label class="form-label">Notes</label>
       <textarea class="form-textarea" id="fm-notes">${esc(film?.notes||'')}</textarea>
-    </div>
     </div>
     ${!film ? `<div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
@@ -3231,6 +3230,7 @@ function serieDetailBodyHTML(s) {
         </div>
       </div>
     </div>
+    ${s.synopsis?`<div style="margin-bottom:16px;font-size:13px;color:var(--text-dim);line-height:1.6">${esc(s.synopsis)}</div>`:''}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">
       <div><div class="form-label">Années</div><div>${esc(s.years||'?')}</div></div>
       <div><div class="form-label">Chaîne/Plateforme</div><div>${esc(joinNames(parseNames(s.platforms)))||'–'}</div></div>
@@ -3238,7 +3238,6 @@ function serieDetailBodyHTML(s) {
       <div><div class="form-label">Durée moy. épisode</div><div>${s.episodeDuration||'–'} min</div></div>
       <div><div class="form-label">Genre(s)</div><div>${parseNames(s.genres).length?esc(joinNames(parseNames(s.genres))):'–'}</div></div>
     </div>
-    ${s.synopsis?`<div style="margin-bottom:16px;font-size:13px;color:var(--text-dim);line-height:1.6;font-style:italic">${esc(s.synopsis)}</div>`:''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <div class="card-title" style="font-size:14px;margin-bottom:0">Saisons & Épisodes</div>
       <div style="display:flex;gap:6px">
