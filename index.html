@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.4.6';
+const APP_VERSION = 'v4.4.8';
 
 function loadDB() {
   try {
@@ -2940,6 +2940,10 @@ function openFilmForm(id) {
       <label class="form-label">Notes</label>
       <textarea class="form-textarea" id="fm-notes">${esc(film?.notes||'')}</textarea>
     </div>
+    <div class="form-group">
+      <label class="form-label">Saga</label>
+      <div id="fm-saga-section">${buildFilmSagaSection(film?.id)}</div>
+    </div>
     ${!film ? `<div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
         <input type="checkbox" id="fm-watched-today" checked>
@@ -4428,7 +4432,7 @@ function openWatchlistToFilmForm(w) {
     const notes=document.getElementById('fm-notes').value.trim();
     const poster=window._capturedPoster||'';
     const newId = uid();
-    DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,synopsis,poster});
+    DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
     const watchedToday = document.getElementById('fm-watched-today');
     if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:newId});
     window._wlPendingConvert = null;
