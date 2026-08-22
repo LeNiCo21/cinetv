@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.4.5';
+const APP_VERSION = 'v4.4.6';
 
 function loadDB() {
   try {
@@ -4034,6 +4034,7 @@ function openSerieForm(id) {
       <textarea class="form-textarea" id="sm-synopsis" rows="3" style="resize:vertical">${esc(serie?.synopsis||'')}</textarea>
     </div>
     <div class="form-group"><label class="form-label">Durée moy. épisode (min) *</label><input class="form-input" id="sm-dur" type="number" value="${esc(serie?.episodeDuration||'')}"></div>
+    <div class="form-group"><label class="form-label">Saisons & Épisodes *</label><div id="fm-seasons-editor"></div></div>
     <div class="form-group">
       <label class="form-label">⭐ Épisodes spéciaux <small style="color:var(--text-dim)">(optionnel — triés par date)</small></label>
       <div id="fm-specials-editor"></div>
