@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.4.0';
+const APP_VERSION = 'v4.4.3';
 
 function loadDB() {
   try {
@@ -525,6 +525,7 @@ async function tmdbMovieDetails(id) {
     countries,
     duration: data.runtime || 0,
     genres,
+    overview: data.overview || '',
     poster: data.poster_path ? 'https://image.tmdb.org/t/p/w300'+data.poster_path : ''
   };
 }
@@ -552,6 +553,7 @@ async function tmdbSeriesDetails(id) {
     tmdbId: id,
     seasonNumbers,
     genres,
+    overview: data.overview || '',
     poster: data.poster_path ? 'https://image.tmdb.org/t/p/w300'+data.poster_path : ''
   };
 }
@@ -2792,6 +2794,7 @@ function filmRow(f) {
       </div>
     </div>
     <div id="fextra-${f.id}" style="display:none" class="media-extra">
+      ${f.synopsis?`<div style="margin-bottom:12px;font-size:13px;color:var(--text-dim);line-height:1.5;font-style:italic">${esc(f.synopsis)}</div>`:''}
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
         <div><div class="form-label">Année</div><div>${esc(f.year||'?')}</div></div>
         <div><div class="form-label">Pays</div><div>${esc(joinNames(parseNames(f.countries)))||'–'}</div></div>
@@ -2930,12 +2933,13 @@ function openFilmForm(id) {
       </div>
     </div>
     <div class="form-group">
+      <label class="form-label">Synopsis <small style="color:var(--text-dim)">(optionnel)</small></label>
+      <textarea class="form-textarea" id="fm-synopsis" rows="3" style="resize:vertical">${esc(film?.synopsis||'')}</textarea>
+    </div>
+    <div class="form-group">
       <label class="form-label">Notes</label>
       <textarea class="form-textarea" id="fm-notes">${esc(film?.notes||'')}</textarea>
     </div>
-    <div class="form-group">
-      <label class="form-label">Saga</label>
-      <div id="fm-saga-section">${buildFilmSagaSection(film?.id)}</div>
     </div>
     ${!film ? `<div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
@@ -2971,18 +2975,19 @@ function openFilmForm(id) {
     else document.getElementById('fm-countries-wrap').classList.remove('invalid');
     if(!valid){ alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
     const notes = document.getElementById('fm-notes').value.trim();
+    const synopsis = document.getElementById('fm-synopsis')?.value.trim()||'';
     const poster = window._capturedPoster!==undefined ? window._capturedPoster : (film?.poster||'');
     const sagaSelect = document.getElementById('fm-saga-select');
     const sagaVal = sagaSelect ? sagaSelect.value : '';
     const newSagaName = sagaVal==='__new__' ? (document.getElementById('new-saga-name')?.value?.trim()||'') : '';
 
     if(film){
-      Object.assign(film,{title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
+      Object.assign(film,{title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,synopsis,poster});
     } else {
       const duplicate = DB.films.find(f=>f.title.trim().toLowerCase()===title.toLowerCase() && f.year===year);
       if(duplicate && !confirm(`Un film "${title}" (${year}) existe déjà. Ajouter quand même ?`)) return false;
       const newId = uid();
-      DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
+      DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,synopsis,poster});
       const watchedToday = document.getElementById('fm-watched-today');
       if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:newId});
     }
@@ -3046,6 +3051,7 @@ function openFilmForm(id) {
         const del = document.getElementById('fm-poster-del');
         if(del) del.style.display='';
       }
+      if(details.overview) { const syn=document.getElementById('fm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
       renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
       document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
     } catch(e) {
@@ -3232,6 +3238,7 @@ function serieDetailBodyHTML(s) {
       <div><div class="form-label">Durée moy. épisode</div><div>${s.episodeDuration||'–'} min</div></div>
       <div><div class="form-label">Genre(s)</div><div>${parseNames(s.genres).length?esc(joinNames(parseNames(s.genres))):'–'}</div></div>
     </div>
+    ${s.synopsis?`<div style="margin-bottom:16px;font-size:13px;color:var(--text-dim);line-height:1.6;font-style:italic">${esc(s.synopsis)}</div>`:''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <div class="card-title" style="font-size:14px;margin-bottom:0">Saisons & Épisodes</div>
       <div style="display:flex;gap:6px">
@@ -4023,8 +4030,11 @@ function openSerieForm(id) {
         <input class="tag-input" id="sm-genres-input" placeholder="Drame, Comédie...">
       </div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Synopsis <small style="color:var(--text-dim)">(optionnel)</small></label>
+      <textarea class="form-textarea" id="sm-synopsis" rows="3" style="resize:vertical">${esc(serie?.synopsis||'')}</textarea>
+    </div>
     <div class="form-group"><label class="form-label">Durée moy. épisode (min) *</label><input class="form-input" id="sm-dur" type="number" value="${esc(serie?.episodeDuration||'')}"></div>
-    <div class="form-group"><label class="form-label">Saisons & Épisodes *</label><div id="fm-seasons-editor"></div></div>
     <div class="form-group">
       <label class="form-label">⭐ Épisodes spéciaux <small style="color:var(--text-dim)">(optionnel — triés par date)</small></label>
       <div id="fm-specials-editor"></div>
@@ -4045,6 +4055,7 @@ function openSerieForm(id) {
     const years=document.getElementById('sm-years').value.trim();
     const status=document.getElementById('sm-status').value;
     const epDur=document.getElementById('sm-dur').value.trim();
+    const synopsis=document.getElementById('sm-synopsis')?.value.trim()||'';
     let valid=true;
     const missing=[];
     if(!title){ document.getElementById('sm-title').classList.add('invalid'); valid=false; missing.push('Titre'); } else document.getElementById('sm-title').classList.remove('invalid');
@@ -4090,13 +4101,13 @@ function openSerieForm(id) {
           return e;
         });
       }
-      Object.assign(serie,{title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster});
+      Object.assign(serie,{title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,synopsis,poster});
     } else {
       const duplicate = DB.series.find(s=>s.title.trim().toLowerCase()===title.toLowerCase());
       if(duplicate && !confirm(`Une série "${title}" existe déjà. Ajouter quand même ?`)) return false;
       const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
         .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
-      DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster,abandoned:false,lastInteracted:0});
+      DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,synopsis,poster,abandoned:false,lastInteracted:0});
     }
     saveDB(); closeModal();
     const originSerieId = window._serieDetailOrigin || null;
@@ -4130,6 +4141,7 @@ function openSerieForm(id) {
       document.getElementById('sm-years').value = details.years;
       document.getElementById('sm-status').value = details.status;
       if(details.episodeDuration) document.getElementById('sm-dur').value = details.episodeDuration;
+      if(details.overview) { const syn=document.getElementById('sm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
       creators.length = 0; details.creators.forEach(c=>creators.push(c));
       renderTags('sm-creators-wrap',creators,'sm-creators-input');
       countries.length = 0; details.countries.forEach(c=>countries.push(c));
@@ -4416,7 +4428,7 @@ function openWatchlistToFilmForm(w) {
     const notes=document.getElementById('fm-notes').value.trim();
     const poster=window._capturedPoster||'';
     const newId = uid();
-    DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,poster});
+    DB.films.push({id:newId,title,directors:[...dirs],countries:[...countries],genres:[...genres],year,duration:parseInt(duration),notes,synopsis,poster});
     const watchedToday = document.getElementById('fm-watched-today');
     if(!watchedToday || watchedToday.checked) logWatch({type:'film', filmId:newId});
     window._wlPendingConvert = null;
@@ -4707,6 +4719,7 @@ function openWatchlistToSerieForm(w) {
         const details = await tmdbSeriesDetails(w.tmdbId);
         document.getElementById('sm-status').value = details.status;
         if(details.episodeDuration) document.getElementById('sm-dur').value = details.episodeDuration;
+      if(details.overview) { const syn=document.getElementById('sm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
         if(details.countries.length){ countries.length=0; details.countries.forEach(c=>countries.push(c)); renderTags('sm-countries-wrap',countries,'sm-countries-input'); }
         if(details.platforms.length){ platforms.length=0; details.platforms.forEach(p=>platforms.push(p)); renderTags('sm-platforms-wrap',platforms,'sm-platforms-input'); }
         if(details.genres?.length){ genres.length=0; details.genres.forEach(g=>genres.push(g)); renderTags('sm-genres-wrap',genres,'sm-genres-input'); }
@@ -4747,27 +4760,25 @@ function historyPage(el, actions) {
   window._historyTab = window._historyTab || 'films';
   window._historyMonth = window._historyMonth || null;
 
-  function getAvailableMonths() {
-    const months = new Set();
-    (DB.watchLog||[]).forEach(e=>{ if(e.date) months.add(e.date.slice(0,7)); });
-    return [...months].sort((a,b)=>b.localeCompare(a));
-  }
-
   function currentYYYYMM() {
     const d = new Date();
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   }
 
   function monthPickerButton(curMonth) {
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-      <button class="btn btn-secondary" style="padding:10px 14px;flex-shrink:0" onclick="shiftHistoryMonth(-1)" title="Mois précédent">◀</button>
-      <div style="position:relative;flex:1;min-width:0">
-        <button class="btn btn-secondary" style="width:100%;justify-content:center;font-weight:600;font-size:14px;padding:10px 14px" onclick="openHistoryMonthPicker()">📅 ${formatMonthLabel(curMonth)}</button>
-        <input type="month" id="history-month-input" value="${curMonth}" tabindex="-1"
-          style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0;padding:0;margin:0"
-          onchange="setHistoryMonth(this.value)">
+    const isCurrentMonth = curMonth === currentYYYYMM();
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-secondary" style="padding:10px 14px;flex-shrink:0" onclick="shiftHistoryMonth(-1)" title="Mois précédent">◀</button>
+        <div style="position:relative;flex:1;min-width:0">
+          <button class="btn btn-secondary" style="width:100%;justify-content:center;font-weight:600;font-size:14px;padding:10px 14px" onclick="openHistoryMonthPicker()">📅 ${formatMonthLabel(curMonth)}</button>
+          <input type="month" id="history-month-input" value="${curMonth}" tabindex="-1"
+            style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0;padding:0;margin:0"
+            onchange="setHistoryMonth(this.value)">
+        </div>
+        <button class="btn btn-secondary" style="padding:10px 14px;flex-shrink:0" onclick="shiftHistoryMonth(1)" title="Mois suivant">▶</button>
       </div>
-      <button class="btn btn-secondary" style="padding:10px 14px;flex-shrink:0" onclick="shiftHistoryMonth(1)" title="Mois suivant">▶</button>
+      ${isCurrentMonth ? '' : `<div style="text-align:center;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="goToCurrentHistoryMonth()">📍 Ce mois-ci</button></div>`}
     </div>`;
   }
 
@@ -4867,9 +4878,8 @@ function historyPage(el, actions) {
   }
 
   function draw() {
-    const allMonths = getAvailableMonths();
     if(!window._historyMonth) {
-      window._historyMonth = allMonths[0] || currentYYYYMM();
+      window._historyMonth = currentYYYYMM();
     }
     const curMonth = window._historyMonth;
     const tab = window._historyTab;
@@ -4964,6 +4974,10 @@ function historyPage(el, actions) {
     const [y,m] = window._historyMonth.split('-').map(Number);
     const d = new Date(y, (m-1)+delta, 1);
     window._historyMonth = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    draw();
+  };
+  window.goToCurrentHistoryMonth = ()=>{
+    window._historyMonth = currentYYYYMM();
     draw();
   };
   window.openHistoryMonthPicker = ()=>{
@@ -6347,6 +6361,7 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
         const del = document.getElementById('fm-poster-del');
         if(del) del.style.display='';
       }
+      if(details.overview) { const syn=document.getElementById('fm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
       renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
       document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
     } catch(e) {
