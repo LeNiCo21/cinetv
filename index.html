@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.4.8';
+const APP_VERSION = 'v4.6.1';
 
 function loadDB() {
   try {
@@ -394,7 +394,7 @@ function parseNames(v) {
   return String(v).split(',').map(s=>s.trim()).filter(Boolean);
 }
 function joinNames(arr) { return (arr||[]).join(', '); }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // Progress stats — used for the % display, "continuer le visionnage", serie detail header
 // Specials are NOT counted here: watching all regular seasons = 100%
@@ -428,11 +428,6 @@ function serieTotalEpsAll(s) {
 function serieSeenMinAll(s) {
   let total = serieSeenMin(s);
   (s.specials||[]).forEach(ep=>{ if(ep.seen) total += ep.duration || s.episodeDuration || 0; });
-  return total;
-}
-function serieTotalMinAll(s) {
-  let total = serieTotalMin(s);
-  (s.specials||[]).forEach(ep=>{ total += ep.duration || s.episodeDuration || 0; });
   return total;
 }
 
@@ -2890,6 +2885,93 @@ function deleteFilm(id) {
 // ============================================================
 // FILM FORM
 // ============================================================
+// ============================================================
+// SHARED FILM FORM HELPERS
+// Used by openFilmForm, openWatchlistToFilmForm and openSagaFilmCompletionForm
+// — the three places a film can be added/completed with title, director(s),
+// year, duration, country, genres... Keeping this logic in one place avoids
+// the three copies drifting out of sync, which is exactly how the undefined
+// "synopsis" bug crept into one of them previously.
+// ============================================================
+function filmPosterFieldHTML(posterUrl) {
+  return `<div class="form-group">
+    <label class="form-label">Poster</label>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div id="fm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">
+        ${posterUrl?`<img src="${posterUrl}" style="width:100%;height:100%;object-fit:cover">`:'🎬'}
+      </div>
+      <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'fm-poster-prev')"></label>
+      <button class="btn btn-danger btn-sm" id="fm-poster-del" onclick="clearPosterBtn('fm-poster-prev','fm-poster-del')" style="${posterUrl?'':'display:none'}">Supprimer</button>
+    </div>
+  </div>`;
+}
+
+function wireFilmTagInputs(dirs, countries, genres) {
+  renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
+  renderTags('fm-countries-wrap',countries,'fm-countries-input');
+  renderTags('fm-genres-wrap',genres,'fm-genres-input');
+  setupTagInput('fm-dirs-input','fm-dirs-wrap',dirs);
+  setupTagInput('fm-countries-input','fm-countries-wrap',countries);
+  setupTagInputWithAutocomplete('fm-genres-input','fm-genres-wrap',genres,knownGenres);
+}
+
+// Validates the fields shared by every film form (title, director(s), year,
+// duration, country). Toggles .invalid classes and shows the alert itself.
+// Returns {title, year, duration} on success, or null if invalid.
+function validateFilmFormCommon(dirs, countries) {
+  const title = document.getElementById('fm-title').value.trim();
+  const year = document.getElementById('fm-year').value.trim();
+  const duration = document.getElementById('fm-duration').value.trim();
+  const missing = [];
+  const check = (id, ok, label) => {
+    const el = document.getElementById(id);
+    if(el) el.classList.toggle('invalid', !ok);
+    if(!ok) missing.push(label);
+  };
+  check('fm-title', !!title, 'Titre');
+  check('fm-dirs-wrap', dirs.length>0, 'Réalisateur(s)');
+  check('fm-year', !!year, 'Année');
+  check('fm-duration', !!duration, 'Durée');
+  check('fm-countries-wrap', countries.length>0, 'Pays');
+  if(missing.length) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return null; }
+  return {title, year, duration};
+}
+
+// Shared TMDB "pick a movie" handler used by openFilmForm and
+// openSagaFilmCompletionForm's TMDB search box. Fetches full details for the
+// picked result and fills in the common film fields (title, year, duration,
+// directors, countries, genres, poster, synopsis if the form has one).
+// Mutates the dirs/countries/genres arrays in place so the caller's own
+// references stay in sync.
+async function applyTmdbMoviePick(picked, dirs, countries, genres) {
+  const box = document.getElementById('fm-tmdb-box');
+  box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress">Récupération des informations...</div></div>`;
+  try {
+    const details = await tmdbMovieDetails(picked.id);
+    document.getElementById('fm-title').value = details.title;
+    document.getElementById('fm-year').value = details.year;
+    if(details.duration) document.getElementById('fm-duration').value = details.duration;
+    dirs.length = 0; details.directors.forEach(d=>dirs.push(d));
+    renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
+    countries.length = 0; details.countries.forEach(c=>countries.push(c));
+    renderTags('fm-countries-wrap',countries,'fm-countries-input');
+    genres.length = 0; (details.genres||[]).forEach(g=>genres.push(g));
+    renderTags('fm-genres-wrap',genres,'fm-genres-input');
+    if(details.poster) {
+      window._capturedPoster = details.poster;
+      const prev = document.getElementById('fm-poster-prev');
+      if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+      const del = document.getElementById('fm-poster-del');
+      if(del) del.style.display='';
+    }
+    if(details.overview) { const syn=document.getElementById('fm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
+    renderTmdbSearchBox('fm-tmdb-box', 'movie', (p)=>applyTmdbMoviePick(p, dirs, countries, genres));
+    document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
+  } catch(e) {
+    box.innerHTML = `<div class="tmdb-search-wrap"><div style="color:var(--red);font-size:12px">Erreur lors de la récupération des détails.</div></div>`;
+  }
+}
+
 function openFilmForm(id) {
   window._capturedPoster = undefined;
   const film = id ? DB.films.find(f=>f.id===id) : null;
@@ -2950,33 +3032,11 @@ function openFilmForm(id) {
         Marquer comme vu aujourd'hui <small style="color:var(--text-dim)">(décochez si vu il y a plus longtemps — ne sera pas compté dans le bilan annuel)</small>
       </label>
     </div>` : ''}
-    <div class="form-group">
-      <label class="form-label">Poster</label>
-      <div style="display:flex;align-items:center;gap:12px">
-        <div id="fm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">
-          ${film?.poster?`<img src="${film.poster}" style="width:100%;height:100%;object-fit:cover">`:'🎬'}
-        </div>
-        <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'fm-poster-prev')"></label>
-        <button class="btn btn-danger btn-sm" id="fm-poster-del" onclick="clearPosterBtn('fm-poster-prev','fm-poster-del')" style="${(film?.poster||window._capturedPoster)?'':'display:none'}">Supprimer</button>
-      </div>
-    </div>
+    ${filmPosterFieldHTML(film?.poster||'')}
   `, () => {
-    const title = document.getElementById('fm-title').value.trim();
-    const year = document.getElementById('fm-year').value.trim();
-    const duration = document.getElementById('fm-duration').value.trim();
-    let valid = true;
-    const missing = [];
-    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; missing.push('Titre'); }
-    else document.getElementById('fm-title').classList.remove('invalid');
-    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; missing.push('Réalisateur(s)'); }
-    else document.getElementById('fm-dirs-wrap').classList.remove('invalid');
-    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; missing.push('Année'); }
-    else document.getElementById('fm-year').classList.remove('invalid');
-    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; missing.push('Durée'); }
-    else document.getElementById('fm-duration').classList.remove('invalid');
-    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); }
-    else document.getElementById('fm-countries-wrap').classList.remove('invalid');
-    if(!valid){ alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
+    const result = validateFilmFormCommon(dirs, countries);
+    if(!result) return false;
+    const {title, year, duration} = result;
     const notes = document.getElementById('fm-notes').value.trim();
     const synopsis = document.getElementById('fm-synopsis')?.value.trim()||'';
     const poster = window._capturedPoster!==undefined ? window._capturedPoster : (film?.poster||'');
@@ -3026,41 +3086,9 @@ function openFilmForm(id) {
     const curPage = document.querySelector('.nav-item.active')?.dataset.page||'films';
     render(curPage);
   });
-  renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
-  renderTags('fm-countries-wrap',countries,'fm-countries-input');
-  renderTags('fm-genres-wrap',genres,'fm-genres-input');
-  setupTagInput('fm-dirs-input','fm-dirs-wrap',dirs);
-  setupTagInput('fm-countries-input','fm-countries-wrap',countries);
-  setupTagInputWithAutocomplete('fm-genres-input','fm-genres-wrap',genres,knownGenres);
+  wireFilmTagInputs(dirs, countries, genres);
 
-  async function onTmdbMoviePick(picked) {
-    const box = document.getElementById('fm-tmdb-box');
-    box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress">Récupération des informations...</div></div>`;
-    try {
-      const details = await tmdbMovieDetails(picked.id);
-      document.getElementById('fm-title').value = details.title;
-      document.getElementById('fm-year').value = details.year;
-      if(details.duration) document.getElementById('fm-duration').value = details.duration;
-      dirs.length = 0; details.directors.forEach(d=>dirs.push(d));
-      renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
-      countries.length = 0; details.countries.forEach(c=>countries.push(c));
-      renderTags('fm-countries-wrap',countries,'fm-countries-input');
-      genres.length = 0; (details.genres||[]).forEach(g=>genres.push(g));
-      renderTags('fm-genres-wrap',genres,'fm-genres-input');
-      if(details.poster) {
-        window._capturedPoster = details.poster;
-        const prev = document.getElementById('fm-poster-prev');
-        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
-        const del = document.getElementById('fm-poster-del');
-        if(del) del.style.display='';
-      }
-      if(details.overview) { const syn=document.getElementById('fm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
-      renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
-      document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
-    } catch(e) {
-      box.innerHTML = `<div class="tmdb-search-wrap"><div style="color:var(--red);font-size:12px">Erreur lors de la récupération des détails.</div></div>`;
-    }
-  }
+  const onTmdbMoviePick = (picked) => applyTmdbMoviePick(picked, dirs, countries, genres);
   renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
 }
 
@@ -3087,9 +3115,9 @@ function handlePosterUpload(input, prevId) {
   };
   reader.readAsDataURL(file);
 }
-function clearPosterBtn(prevId, delId) {
+function clearPosterBtn(prevId, delId, fallback) {
   window._capturedPoster = '';
-  document.getElementById(prevId).innerHTML = '🎬';
+  document.getElementById(prevId).innerHTML = fallback || '🎬';
   document.getElementById(delId).style.display='none';
 }
 
@@ -3750,18 +3778,6 @@ function patchEpisodeUI(s, si, ei) {
   }
 }
 
-function markSerieAll(sid,seen) {
-  const s=DB.series.find(x=>x.id===sid); if(!s) return;
-  s.seasons.forEach((sn,si)=>sn.episodes.forEach((ep,ei)=>{
-    if(!seen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
-    ep.seen=seen;
-  }));
-  s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
-  saveDB();
-  refreshSerieDetailModal(sid);
-  updateSerieRowProgress(sid);
-}
-
 function toggleSeasonAllSeen(sid, si) {
   const s=DB.series.find(x=>x.id===sid); if(!s) return;
   const season=s.seasons[si]; if(!season) return;
@@ -3771,18 +3787,6 @@ function toggleSeasonAllSeen(sid, si) {
   season.episodes.forEach((ep,ei)=>{
     if(!markSeen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
     ep.seen=markSeen;
-  });
-  s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
-  saveDB();
-  refreshSerieDetailModal(sid);
-  updateSerieRowProgress(sid);
-}
-
-function markSeasonAll(sid,si,seen) {
-  const s=DB.series.find(x=>x.id===sid); if(!s) return;
-  s.seasons[si].episodes.forEach((ep,ei)=>{
-    if(!seen && ep.seen) unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
-    ep.seen=seen;
   });
   s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
   saveDB();
@@ -3817,45 +3821,50 @@ function abandonedPage(el) {
 // ============================================================
 // SERIE FORM (with season naming + airdate cascade tools)
 // ============================================================
-function openSerieFormFromDetail(id) {
-  window._serieDetailOrigin = id;
-  closeModal();
-  openSerieForm(id);
-}
+// ============================================================
+// SHARED SEASONS/EPISODES EDITOR
+// Used by openSerieForm and openWatchlistToSerieForm. Previously each of
+// those functions had its own ~160-line copy of this editor; keeping a
+// single shared implementation means a fix or feature only has to be
+// made once, instead of being (accidentally) applied to only one copy.
+// Each form calls SeasonsEditor.init(seasons, specials, platforms) with
+// its own live arrays, then SeasonsEditor mutates those same arrays
+// in place (push/splice/length=0), so the calling form always sees
+// up-to-date data through its own `seasons`/`specials` variables.
+// ============================================================
+const SeasonsEditor = {
+  seasons: [],
+  specials: [],
+  platforms: [],
 
-function openSerieForm(id) {
-  window._capturedPoster = undefined;
-  const serie = id ? DB.series.find(s=>s.id===id) : null;
-  if(serie) window._capturedPoster = serie.poster||'';
-  const creators = serie ? parseNames(serie.creators) : [];
-  const countries = serie ? parseNames(serie.countries) : [];
-  const platforms = serie ? parseNames(serie.platforms) : [];
-  const genres = serie ? parseNames(serie.genres) : [];
-  let tmdbId = serie ? (serie.tmdbId||null) : null;
-  let seasons = serie ? JSON.parse(JSON.stringify(serie.seasons||[])).map((sn,i)=>({...sn,_origIdx:i})) : [];
-  let specials = serie ? JSON.parse(JSON.stringify(serie.specials||[])) : [];
+  init(seasons, specials, platforms) {
+    this.seasons = seasons;
+    this.specials = specials;
+    this.platforms = platforms;
+  },
 
-  function addWeek(dateStr) {
+  addWeek(dateStr) {
     const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if(!m) return '';
     const d = new Date(Date.UTC(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3])));
     d.setUTCDate(d.getUTCDate()+7);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-  }
-  const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s||''));
+  },
+  isValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s||'')); },
   // Internal storage stays YYYY-MM-DD (sortable, used for the +1 week math).
   // Display/input uses DD-MM-YYYY.
-  function isoToDisplay(iso) {
+  isoToDisplay(iso) {
     const m = String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     return m ? `${m[3]}-${m[2]}-${m[1]}` : (iso||'');
-  }
-  function displayToIso(disp) {
+  },
+  displayToIso(disp) {
     const m = String(disp||'').trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
     return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
-  }
+  },
 
-  function renderSeasonsEditor() {
+  renderSeasons() {
     const wrap=document.getElementById('fm-seasons-editor'); if(!wrap) return;
+    const seasons = this.seasons, platforms = this.platforms;
     wrap.innerHTML = seasons.map((season,si)=>`
       <div style="background:var(--surface3);border-radius:8px;padding:12px;margin-bottom:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -3912,78 +3921,60 @@ function openSerieForm(id) {
         </div>
       </div>`).join('')
     + `<button class="btn btn-secondary btn-sm" onclick="addSeason()" style="margin-top:4px">＋ Ajouter une saison</button>`;
-  }
+  },
 
-  window.toggleEpDetails=(si)=>{ seasons[si]._showDetails=!seasons[si]._showDetails; renderSeasonsEditor(); };
-  window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
-  window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
-  window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
-  window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
-  window.addSeason=()=>{ const prevPlatform = seasons.length ? (seasons[seasons.length-1].platform||null) : null; seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); renderSeasonsEditor(); };
-  window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
-  window.moveSeasonUp=(si)=>{ if(si>0){ [seasons[si-1],seasons[si]]=[seasons[si],seasons[si-1]]; renderSeasonsEditor(); } };
-  window.moveSeasonDown=(si)=>{ if(si<seasons.length-1){ [seasons[si],seasons[si+1]]=[seasons[si+1],seasons[si]]; renderSeasonsEditor(); } };
-
-  function renderSpecialsEditor() {
-    const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
-    wrap.innerHTML = specials.map((sp,i)=>`
-      <div style="display:grid;grid-template-columns:1fr 80px 80px 28px;gap:6px;align-items:center;margin-bottom:6px">
-        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(sp.title||'')}" oninput="setSpecialField(${i},'title',this.value)">
-        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Durée (min)" type="number" value="${sp.duration||''}" oninput="setSpecialField(${i},'duration',this.value?parseInt(this.value):null)">
-        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="JJ-MM-AAAA" value="${esc(isoToDisplay(sp.airdate))}" onchange="setSpecialDate(${i},this.value)">
-        <button class="btn btn-danger btn-xs" onclick="removeSpecial(${i})">✕</button>
-      </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">Aucun épisode spécial.</div>';
-  }
-  window.addSpecial = ()=>{ specials.push({seen:false,title:'',airdate:'',duration:null}); renderSpecialsEditor(); };
-  window.removeSpecial = (i)=>{ specials.splice(i,1); renderSpecialsEditor(); };
-  window.setSpecialField = (i,k,v)=>{ specials[i][k]=v; };
-  window.setSpecialDate = (i,v)=>{ specials[i].airdate = displayToIso(v)||''; };
-  renderSpecialsEditor();
-
-  window.resizeSeason=(si,n)=>{
+  toggleEpDetails(si){ this.seasons[si]._showDetails=!this.seasons[si]._showDetails; this.renderSeasons(); },
+  setEpField(si,ei,f,v){ this.seasons[si].episodes[ei][f]=v; },
+  setSeasonName(si,v){ this.seasons[si].name=v; },
+  setSeasonEpDuration(si,v){ this.seasons[si].episodeDuration = v ? parseInt(v) : null; },
+  setSeasonPlatform(si,v){ this.seasons[si].platform = v.trim() || null; },
+  addSeason(){ const prevPlatform = this.seasons.length ? (this.seasons[this.seasons.length-1].platform||null) : null; this.seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); this.renderSeasons(); },
+  removeSeason(si){ this.seasons.splice(si,1); this.renderSeasons(); },
+  moveSeasonUp(si){ if(si>0){ const s=this.seasons; [s[si-1],s[si]]=[s[si],s[si-1]]; this.renderSeasons(); } },
+  moveSeasonDown(si){ if(si<this.seasons.length-1){ const s=this.seasons; [s[si],s[si+1]]=[s[si+1],s[si]]; this.renderSeasons(); } },
+  resizeSeason(si,n){
     n=Math.max(1,parseInt(n)||1);
-    const cur=seasons[si].episodes;
+    const cur=this.seasons[si].episodes;
     while(cur.length<n) cur.push({seen:false,title:'',airdate:''});
     while(cur.length>n) cur.pop();
-    renderSeasonsEditor();
-  };
-  window.toggleSameDay=(si,checked)=>{ seasons[si]._sameDay=checked; if(checked) seasons[si]._weekly=false; renderSeasonsEditor(); };
-  window.toggleWeekly=(si,checked)=>{ seasons[si]._weekly=checked; if(checked) seasons[si]._sameDay=false; renderSeasonsEditor(); };
-
-  window.setEpDate = (si, ei, val) => {
-    const season = seasons[si];
-    const iso = displayToIso(val);
+    this.renderSeasons();
+  },
+  toggleSameDay(si,checked){ this.seasons[si]._sameDay=checked; if(checked) this.seasons[si]._weekly=false; this.renderSeasons(); },
+  toggleWeekly(si,checked){ this.seasons[si]._weekly=checked; if(checked) this.seasons[si]._sameDay=false; this.renderSeasons(); },
+  setEpDate(si, ei, val) {
+    const season = this.seasons[si];
+    const iso = this.displayToIso(val);
     if(val.trim() && !iso) {
       // Invalid format typed — keep raw text so user can fix it, don't crash cascade logic
       season.episodes[ei].airdate = '';
       alert('Format de date invalide. Utilisez JJ-MM-AAAA (ex: 11-06-2026).');
-      renderSeasonsEditor();
+      this.renderSeasons();
       return;
     }
     season.episodes[ei].airdate = iso;
-    if(!isValidDate(iso)) { renderSeasonsEditor(); return; }
+    if(!this.isValidDate(iso)) { this.renderSeasons(); return; }
 
     if(season._sameDay) {
       const apply = () => {
         season.episodes.forEach(ep=>{ ep.airdate = iso; });
-        renderSeasonsEditor();
+        this.renderSeasons();
       };
       const hasOtherDates = season.episodes.some((ep,idx)=>idx!==ei && ep.airdate && ep.airdate!==iso);
       if(hasOtherDates) {
         if(confirm('Certains épisodes ont déjà une date différente. Les écraser avec cette date pour toute la saison ?')) apply();
-        else renderSeasonsEditor();
+        else this.renderSeasons();
       } else apply();
       return;
     }
 
     if(season._weekly) {
-      let cascade = (fromIdx, overwriteThrough) => {
+      const cascade = (fromIdx, overwriteThrough) => {
         let curDate = season.episodes[fromIdx].airdate;
         for(let idx=fromIdx+1; idx<season.episodes.length; idx++) {
           const next = season.episodes[idx];
-          const computed = addWeek(curDate);
-          if(next.airdate && isValidDate(next.airdate) && next.airdate !== computed && !overwriteThrough) {
-            if(confirm(`L'épisode E${idx+1} a déjà une date (${isoToDisplay(next.airdate)}). Continuer en l'écrasant avec la cascade hebdomadaire ?`)) {
+          const computed = this.addWeek(curDate);
+          if(next.airdate && this.isValidDate(next.airdate) && next.airdate !== computed && !overwriteThrough) {
+            if(confirm(`L'épisode E${idx+1} a déjà une date (${this.isoToDisplay(next.airdate)}). Continuer en l'écrasant avec la cascade hebdomadaire ?`)) {
               cascade(fromIdx, true);
             }
             return;
@@ -3993,11 +3984,70 @@ function openSerieForm(id) {
         }
       };
       cascade(ei, false);
-      renderSeasonsEditor();
+      this.renderSeasons();
       return;
     }
-    renderSeasonsEditor();
-  };
+    this.renderSeasons();
+  },
+
+  renderSpecials() {
+    const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
+    const specials = this.specials;
+    wrap.innerHTML = specials.map((sp,i)=>`
+      <div style="display:grid;grid-template-columns:1fr 80px 80px 28px;gap:6px;align-items:center;margin-bottom:6px">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(sp.title||'')}" oninput="setSpecialField(${i},'title',this.value)">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Durée (min)" type="number" value="${sp.duration||''}" oninput="setSpecialField(${i},'duration',this.value?parseInt(this.value):null)">
+        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="JJ-MM-AAAA" value="${esc(this.isoToDisplay(sp.airdate))}" onchange="setSpecialDate(${i},this.value)">
+        <button class="btn btn-danger btn-xs" onclick="removeSpecial(${i})">✕</button>
+      </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">Aucun épisode spécial.</div>';
+  },
+  addSpecial(){ this.specials.push({seen:false,title:'',airdate:'',duration:null}); this.renderSpecials(); },
+  removeSpecial(i){ this.specials.splice(i,1); this.renderSpecials(); },
+  setSpecialField(i,k,v){ this.specials[i][k]=v; },
+  setSpecialDate(i,v){ this.specials[i].airdate = this.displayToIso(v)||''; }
+};
+
+// Thin global wrappers so the inline onclick="..." HTML attributes (shared
+// by both forms) keep working unchanged, whichever form is currently open.
+window.toggleEpDetails = (si)=>SeasonsEditor.toggleEpDetails(si);
+window.setEpField = (si,ei,f,v)=>SeasonsEditor.setEpField(si,ei,f,v);
+window.setSeasonName = (si,v)=>SeasonsEditor.setSeasonName(si,v);
+window.setSeasonEpDuration = (si,v)=>SeasonsEditor.setSeasonEpDuration(si,v);
+window.setSeasonPlatform = (si,v)=>SeasonsEditor.setSeasonPlatform(si,v);
+window.addSeason = ()=>SeasonsEditor.addSeason();
+window.removeSeason = (si)=>SeasonsEditor.removeSeason(si);
+window.moveSeasonUp = (si)=>SeasonsEditor.moveSeasonUp(si);
+window.moveSeasonDown = (si)=>SeasonsEditor.moveSeasonDown(si);
+window.resizeSeason = (si,n)=>SeasonsEditor.resizeSeason(si,n);
+window.toggleSameDay = (si,checked)=>SeasonsEditor.toggleSameDay(si,checked);
+window.toggleWeekly = (si,checked)=>SeasonsEditor.toggleWeekly(si,checked);
+window.setEpDate = (si,ei,val)=>SeasonsEditor.setEpDate(si,ei,val);
+window.addSpecial = ()=>SeasonsEditor.addSpecial();
+window.removeSpecial = (i)=>SeasonsEditor.removeSpecial(i);
+window.setSpecialField = (i,k,v)=>SeasonsEditor.setSpecialField(i,k,v);
+window.setSpecialDate = (i,v)=>SeasonsEditor.setSpecialDate(i,v);
+
+function openSerieFormFromDetail(id) {
+  window._serieDetailOrigin = id;
+  closeModal();
+  openSerieForm(id);
+}
+
+function openSerieForm(id) {
+  window._capturedPoster = undefined;
+  const serie = id ? DB.series.find(s=>s.id===id) : null;
+  if(serie) window._capturedPoster = serie.poster||'';
+  const creators = serie ? parseNames(serie.creators) : [];
+  const countries = serie ? parseNames(serie.countries) : [];
+  const platforms = serie ? parseNames(serie.platforms) : [];
+  const genres = serie ? parseNames(serie.genres) : [];
+  let tmdbId = serie ? (serie.tmdbId||null) : null;
+  let seasons = serie ? JSON.parse(JSON.stringify(serie.seasons||[])).map((sn,i)=>({...sn,_origIdx:i})) : [];
+  let specials = serie ? JSON.parse(JSON.stringify(serie.specials||[])) : [];
+
+  SeasonsEditor.init(seasons, specials, platforms);
+  function renderSeasonsEditor() { SeasonsEditor.renderSeasons(); }
+  SeasonsEditor.renderSpecials();
 
   createModal(serie?'Modifier la série':'Ajouter une série', `
     <div id="sm-tmdb-box"></div>
@@ -4051,7 +4101,7 @@ function openSerieForm(id) {
           ${serie?.poster?`<img src="${serie.poster}" style="width:100%;height:100%;object-fit:cover">`:'📺'}
         </div>
         <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'sm-poster-prev')"></label>
-        <button class="btn btn-danger btn-sm" id="sm-poster-del" onclick="clearPosterBtn('sm-poster-prev','sm-poster-del')" style="${serie?.poster?'':'display:none'}">Supprimer</button>
+        <button class="btn btn-danger btn-sm" id="sm-poster-del" onclick="clearPosterBtn('sm-poster-prev','sm-poster-del','📺')" style="${serie?.poster?'':'display:none'}">Supprimer</button>
       </div>
     </div>
   `, () => {
@@ -4254,7 +4304,7 @@ function watchlistRow(w) {
   else if(w.platform) meta.push(w.platform);
   return `<div class="media-row" id="wrow-${w.id}">
     <div class="media-row-main" style="cursor:default">
-      <div class="media-poster-thumb" style="font-size:20px">${w.type==='film'?'🎬':'📺'}</div>
+      <div class="media-poster-thumb" style="font-size:20px">${w.poster?`<img src="${w.poster}" alt="">`:(w.type==='film'?'🎬':'📺')}</div>
       <div class="media-info" style="margin-left:12px">
         <div class="media-title">${esc(w.title)}</div>
         <div class="media-meta">${meta.map(esc).join(' • ')||'–'}</div>
@@ -4275,6 +4325,9 @@ function openWatchlistForm(type, id) {
   const wlCreators=item?parseNames(item.creators||item.director||[]):[];
   const wlPlatforms=item?parseNames(item.platforms||item.platform||[]):[];
   let wlTmdbId = item?.tmdbId || null;
+  window._capturedPoster = undefined;
+  if(item) window._capturedPoster = item.poster||'';
+  const posterFallback = t==='film' ? '🎬' : '📺';
 
   createModal(item?'Modifier':'＋ '+(t==='film'?'Film à voir':'Série à voir'),`
     <div style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Titre obligatoire — le reste est optionnel.</div>
@@ -4292,14 +4345,25 @@ function openWatchlistForm(type, id) {
       <div class="tag-input-wrap" id="wl-platforms-wrap" style="position:relative" onclick="document.getElementById('wl-platforms-input').focus()"><input class="tag-input" id="wl-platforms-input" placeholder="Netflix..."></div>
     </div>`:''}
     <div class="form-group"><label class="form-label">Note <small style="color:var(--text-dim)">(optionnel)</small></label><input class="form-input" id="wl-notes" value="${esc(item?.notes||'')}" placeholder="Recommandé par..."></div>
+    <div class="form-group">
+      <label class="form-label">Poster <small style="color:var(--text-dim)">(optionnel)</small></label>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="wl-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">
+          ${item?.poster?`<img src="${item.poster}" style="width:100%;height:100%;object-fit:cover">`:posterFallback}
+        </div>
+        <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'wl-poster-prev')"></label>
+        <button class="btn btn-danger btn-sm" id="wl-poster-del" onclick="clearPosterBtn('wl-poster-prev','wl-poster-del','${posterFallback}')" style="${item?.poster?'':'display:none'}">Supprimer</button>
+      </div>
+    </div>
   `,()=>{
     const title=document.getElementById('wl-title')?.value?.trim();
     if(!title){ document.getElementById('wl-title').classList.add('invalid'); return false; }
     const year=document.getElementById('wl-year')?.value?.trim();
     const notes=document.getElementById('wl-notes')?.value?.trim();
+    const poster=window._capturedPoster!==undefined?window._capturedPoster:(item?.poster||'');
     if(!DB.watchlist) DB.watchlist=[];
-    if(item){ Object.assign(item,{title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId}); }
-    else { DB.watchlist.push({id:uid(),type:t,title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId}); }
+    if(item){ Object.assign(item,{title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId,poster}); }
+    else { DB.watchlist.push({id:uid(),type:t,title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId,poster}); }
     saveDB(); closeModal();
     if(window._wlDraw) window._wlDraw();
   });
@@ -4310,28 +4374,36 @@ function openWatchlistForm(type, id) {
     setupTagInputWithAutocomplete('wl-platforms-input','wl-platforms-wrap',wlPlatforms,knownPlatforms);
   }
 
-  // TMDB search — pre-fills title/year/creators here, and remembers the
-  // tmdbId so that converting this watchlist entry to a watched film/series
-  // later can pull ALL details (country, duration, genres, seasons...)
-  // automatically instead of re-searching from scratch.
+  // TMDB search — pre-fills title/year/creators/poster here, and remembers
+  // the tmdbId so that converting this watchlist entry to a watched
+  // film/series later can pull ALL details (country, duration, genres,
+  // seasons...) automatically instead of re-searching from scratch.
   async function onWlTmdbPick(picked) {
     const box = document.getElementById('wl-tmdb-box');
     box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress">Récupération des informations...</div></div>`;
     try {
+      let details;
       if(t==='film') {
-        const details = await tmdbMovieDetails(picked.id);
+        details = await tmdbMovieDetails(picked.id);
         document.getElementById('wl-title').value = details.title;
         document.getElementById('wl-year').value = details.year;
         wlCreators.length = 0; details.directors.forEach(d=>wlCreators.push(d));
         renderTags('wl-creators-wrap',wlCreators,'wl-creators-input');
       } else {
-        const details = await tmdbSeriesDetails(picked.id);
+        details = await tmdbSeriesDetails(picked.id);
         document.getElementById('wl-title').value = details.title;
         document.getElementById('wl-year').value = details.years;
         wlCreators.length = 0; details.creators.forEach(c=>wlCreators.push(c));
         renderTags('wl-creators-wrap',wlCreators,'wl-creators-input');
         wlPlatforms.length = 0; details.platforms.forEach(p=>wlPlatforms.push(p));
         renderTags('wl-platforms-wrap',wlPlatforms,'wl-platforms-input');
+      }
+      if(details.poster) {
+        window._capturedPoster = details.poster;
+        const prev = document.getElementById('wl-poster-prev');
+        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
+        const del = document.getElementById('wl-poster-del');
+        if(del) del.style.display='';
       }
       wlTmdbId = picked.id;
       renderTmdbSearchBox('wl-tmdb-box', t==='film'?'movie':'tv', onWlTmdbPick);
@@ -4387,7 +4459,7 @@ function restoreWatchlistIfPending() {
 }
 
 function openWatchlistToFilmForm(w) {
-  window._capturedPoster='';
+  window._capturedPoster = w.poster||'';
   const dirs=parseNames(w.creators||w.director||[]);
   const countries=[];
   const genres=[];
@@ -4410,25 +4482,11 @@ function openWatchlistToFilmForm(w) {
         Marquer comme vu aujourd'hui <small style="color:var(--text-dim)">(décochez si vu il y a plus longtemps — ne sera pas compté dans le bilan annuel)</small>
       </label>
     </div>
-    <div class="form-group"><label class="form-label">Poster</label>
-      <div style="display:flex;align-items:center;gap:12px">
-        <div id="fm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px">🎬</div>
-        <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'fm-poster-prev')"></label>
-        <button class="btn btn-danger btn-sm" id="fm-poster-del" onclick="clearPosterBtn('fm-poster-prev','fm-poster-del')" style="display:none">Supprimer</button>
-      </div>
-    </div>
+    ${filmPosterFieldHTML(w.poster||'')}
   `,()=>{
-    const title=document.getElementById('fm-title').value.trim();
-    const year=document.getElementById('fm-year').value.trim();
-    const duration=document.getElementById('fm-duration').value.trim();
-    let valid=true;
-    const missing=[];
-    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; missing.push('Titre'); }
-    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; missing.push('Réalisateur(s)'); }
-    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; missing.push('Année'); }
-    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; missing.push('Durée'); }
-    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); }
-    if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
+    const result = validateFilmFormCommon(dirs, countries);
+    if(!result) return false;
+    const {title, year, duration} = result;
     const notes=document.getElementById('fm-notes').value.trim();
     const poster=window._capturedPoster||'';
     const newId = uid();
@@ -4438,12 +4496,7 @@ function openWatchlistToFilmForm(w) {
     window._wlPendingConvert = null;
     saveDB(); closeModal(); render('films');
   });
-  renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
-  renderTags('fm-countries-wrap',countries,'fm-countries-input');
-  renderTags('fm-genres-wrap',genres,'fm-genres-input');
-  setupTagInput('fm-dirs-input','fm-dirs-wrap',dirs);
-  setupTagInput('fm-countries-input','fm-countries-wrap',countries);
-  setupTagInputWithAutocomplete('fm-genres-input','fm-genres-wrap',genres,knownGenres);
+  wireFilmTagInputs(dirs, countries, genres);
 
   // If this watchlist entry was added via TMDB search, fetch the full
   // details right away so country/duration/genres aren't left empty —
@@ -4470,7 +4523,7 @@ function openWatchlistToFilmForm(w) {
 }
 
 function openWatchlistToSerieForm(w) {
-  window._capturedPoster='';
+  window._capturedPoster = w.poster||'';
   const creators=parseNames(w.creators||w.director||[]);
   const countries=[];
   const platforms=parseNames(w.platforms||w.platform||[]);
@@ -4479,169 +4532,9 @@ function openWatchlistToSerieForm(w) {
   let specials=[];
 
 
-  function addWeek(dateStr) {
-    const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if(!m) return '';
-    const d = new Date(Date.UTC(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3])));
-    d.setUTCDate(d.getUTCDate()+7);
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-  }
-  const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s||''));
-  // Internal storage stays YYYY-MM-DD (sortable, used for the +1 week math).
-  // Display/input uses DD-MM-YYYY.
-  function isoToDisplay(iso) {
-    const m = String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[3]}-${m[2]}-${m[1]}` : (iso||'');
-  }
-  function displayToIso(disp) {
-    const m = String(disp||'').trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
-  }
-
-  function renderSeasonsEditor() {
-    const wrap=document.getElementById('fm-seasons-editor'); if(!wrap) return;
-    wrap.innerHTML = seasons.map((season,si)=>`
-      <div style="background:var(--surface3);border-radius:8px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <b>Saison ${si+1}</b>
-          <div style="display:flex;gap:4px;align-items:center">
-            <button class="btn btn-secondary btn-xs" onclick="moveSeasonUp(${si})" ${si===0?'disabled':''} title="Monter">↑</button>
-            <button class="btn btn-secondary btn-xs" onclick="moveSeasonDown(${si})" ${si===seasons.length-1?'disabled':''} title="Descendre">↓</button>
-            <button class="btn btn-danger btn-xs" onclick="removeSeason(${si})">Supprimer</button>
-          </div>
-        </div>
-        <div class="form-row" style="margin-bottom:10px">
-          <div>
-            <label class="form-label" style="margin-bottom:4px">Nom de la saison <small style="color:var(--text-dim)">(optionnel)</small></label>
-            <input class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Ex: Les Origines" value="${esc(season.name||'')}" oninput="setSeasonName(${si},this.value)">
-          </div>
-          <div>
-            <label class="form-label" style="margin-bottom:4px">Nb épisodes</label>
-            <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" value="${season.episodes.length}" onchange="resizeSeason(${si},this.value)">
-          </div>
-          <div>
-            <label class="form-label" style="margin-bottom:4px">Durée/ép. (min) <small style="color:var(--text-dim)">(optionnel)</small></label>
-            <input type="number" min="1" class="form-input" style="padding:6px 10px;font-size:13px" placeholder="Global" value="${esc(season.episodeDuration||'')}" oninput="setSeasonEpDuration(${si},this.value)">
-          </div>
-          <div>
-            <label class="form-label" style="margin-bottom:4px">Chaîne/Plateforme <small style="color:var(--text-dim)">(optionnel)</small></label>
-            <select class="form-select" style="padding:6px 10px;font-size:13px" onchange="setSeasonPlatform(${si},this.value)">
-              <option value="">Global</option>
-              ${platforms.map(p=>`<option value="${esc(p)}" ${season.platform===p?'selected':''}>${esc(p)}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">(vus : ${season.episodes.filter(e=>e.seen).length})</div>
-        <button class="btn btn-secondary btn-xs" onclick="toggleEpDetails(${si})">
-          ${season._showDetails?'▼ Masquer titres/dates':'▶ Titres & dates (optionnel)'}
-        </button>
-        <div id="ep-details-${si}" style="display:${season._showDetails?'block':'none'};margin-top:10px">
-          <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Format date : JJ-MM-AAAA</div>
-          <div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-              <input type="checkbox" id="opt-sameday-${si}" ${season._sameDay?'checked':''} onchange="toggleSameDay(${si},this.checked)">
-              Même date pour toute la saison
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-              <input type="checkbox" id="opt-weekly-${si}" ${season._weekly?'checked':''} onchange="toggleWeekly(${si},this.checked)">
-              +1 semaine entre chaque épisode
-            </label>
-          </div>
-          ${season.episodes.map((ep,ei)=>`
-            <div style="display:grid;grid-template-columns:28px 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px">
-              <span style="font-size:12px;color:var(--text-dim);text-align:right">E${ei+1}</span>
-              <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(ep.title||'')}" oninput="setEpField(${si},${ei},'title',this.value)">
-              <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Date (JJ-MM-AAAA)" value="${esc(isoToDisplay(ep.airdate))}" onchange="setEpDate(${si},${ei},this.value)">
-            </div>`).join('')}
-        </div>
-      </div>`).join('')
-    + `<button class="btn btn-secondary btn-sm" onclick="addSeason()" style="margin-top:4px">＋ Ajouter une saison</button>`;
-  }
-
-  window.toggleEpDetails=(si)=>{ seasons[si]._showDetails=!seasons[si]._showDetails; renderSeasonsEditor(); };
-  window.setEpField=(si,ei,f,v)=>{ seasons[si].episodes[ei][f]=v; };
-  window.setSeasonName=(si,v)=>{ seasons[si].name=v; };
-  window.setSeasonEpDuration=(si,v)=>{ seasons[si].episodeDuration = v ? parseInt(v) : null; };
-  window.setSeasonPlatform=(si,v)=>{ seasons[si].platform = v.trim() || null; };
-  window.addSeason=()=>{ const prevPlatform = seasons.length ? (seasons[seasons.length-1].platform||null) : null; seasons.push({episodes:[{seen:false,title:'',airdate:''}],_showDetails:false,platform:prevPlatform}); renderSeasonsEditor(); };
-  window.removeSeason=(si)=>{ seasons.splice(si,1); renderSeasonsEditor(); };
-  window.moveSeasonUp=(si)=>{ if(si>0){ [seasons[si-1],seasons[si]]=[seasons[si],seasons[si-1]]; renderSeasonsEditor(); } };
-  window.moveSeasonDown=(si)=>{ if(si<seasons.length-1){ [seasons[si],seasons[si+1]]=[seasons[si+1],seasons[si]]; renderSeasonsEditor(); } };
-
-  function renderSpecialsEditor() {
-    const wrap = document.getElementById('fm-specials-editor'); if(!wrap) return;
-    wrap.innerHTML = specials.map((sp,i)=>`
-      <div style="display:grid;grid-template-columns:1fr 80px 80px 28px;gap:6px;align-items:center;margin-bottom:6px">
-        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(sp.title||'')}" oninput="setSpecialField(${i},'title',this.value)">
-        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Durée (min)" type="number" value="${sp.duration||''}" oninput="setSpecialField(${i},'duration',this.value?parseInt(this.value):null)">
-        <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="JJ-MM-AAAA" value="${esc(isoToDisplay(sp.airdate))}" onchange="setSpecialDate(${i},this.value)">
-        <button class="btn btn-danger btn-xs" onclick="removeSpecial(${i})">✕</button>
-      </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">Aucun épisode spécial.</div>';
-  }
-  window.addSpecial = ()=>{ specials.push({seen:false,title:'',airdate:'',duration:null}); renderSpecialsEditor(); };
-  window.removeSpecial = (i)=>{ specials.splice(i,1); renderSpecialsEditor(); };
-  window.setSpecialField = (i,k,v)=>{ specials[i][k]=v; };
-  window.setSpecialDate = (i,v)=>{ specials[i].airdate = displayToIso(v)||''; };
-  renderSpecialsEditor();
-
-  window.resizeSeason=(si,n)=>{
-    n=Math.max(1,parseInt(n)||1);
-    const cur=seasons[si].episodes;
-    while(cur.length<n) cur.push({seen:false,title:'',airdate:''});
-    while(cur.length>n) cur.pop();
-    renderSeasonsEditor();
-  };
-  window.toggleSameDay=(si,checked)=>{ seasons[si]._sameDay=checked; if(checked) seasons[si]._weekly=false; renderSeasonsEditor(); };
-  window.toggleWeekly=(si,checked)=>{ seasons[si]._weekly=checked; if(checked) seasons[si]._sameDay=false; renderSeasonsEditor(); };
-
-  window.setEpDate = (si, ei, val) => {
-    const season = seasons[si];
-    const iso = displayToIso(val);
-    if(val.trim() && !iso) {
-      // Invalid format typed — keep raw text so user can fix it, don't crash cascade logic
-      season.episodes[ei].airdate = '';
-      alert('Format de date invalide. Utilisez JJ-MM-AAAA (ex: 11-06-2026).');
-      renderSeasonsEditor();
-      return;
-    }
-    season.episodes[ei].airdate = iso;
-    if(!isValidDate(iso)) { renderSeasonsEditor(); return; }
-
-    if(season._sameDay) {
-      const apply = () => {
-        season.episodes.forEach(ep=>{ ep.airdate = iso; });
-        renderSeasonsEditor();
-      };
-      const hasOtherDates = season.episodes.some((ep,idx)=>idx!==ei && ep.airdate && ep.airdate!==iso);
-      if(hasOtherDates) {
-        if(confirm('Certains épisodes ont déjà une date différente. Les écraser avec cette date pour toute la saison ?')) apply();
-        else renderSeasonsEditor();
-      } else apply();
-      return;
-    }
-
-    if(season._weekly) {
-      let cascade = (fromIdx, overwriteThrough) => {
-        let curDate = season.episodes[fromIdx].airdate;
-        for(let idx=fromIdx+1; idx<season.episodes.length; idx++) {
-          const next = season.episodes[idx];
-          const computed = addWeek(curDate);
-          if(next.airdate && isValidDate(next.airdate) && next.airdate !== computed && !overwriteThrough) {
-            if(confirm(`L'épisode E${idx+1} a déjà une date (${isoToDisplay(next.airdate)}). Continuer en l'écrasant avec la cascade hebdomadaire ?`)) {
-              cascade(fromIdx, true);
-            }
-            return;
-          }
-          next.airdate = computed;
-          curDate = computed;
-        }
-      };
-      cascade(ei, false);
-      renderSeasonsEditor();
-      return;
-    }
-    renderSeasonsEditor();
-  };
+  SeasonsEditor.init(seasons, specials, platforms);
+  function renderSeasonsEditor() { SeasonsEditor.renderSeasons(); }
+  SeasonsEditor.renderSpecials();
 
   let tmdbId = w.tmdbId || null;
 
@@ -4668,9 +4561,9 @@ function openWatchlistToSerieForm(w) {
     <div class="form-group">
       <label class="form-label">Poster</label>
       <div style="display:flex;align-items:center;gap:12px">
-        <div id="sm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">🎬</div>
+        <div id="sm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">${w.poster?`<img src="${w.poster}" style="width:100%;height:100%;object-fit:cover">`:'📺'}</div>
         <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'sm-poster-prev')"></label>
-        <button class="btn btn-danger btn-sm" id="sm-poster-del" onclick="clearPosterBtn('sm-poster-prev','sm-poster-del')" style="display:none">Supprimer</button>
+        <button class="btn btn-danger btn-sm" id="sm-poster-del" onclick="clearPosterBtn('sm-poster-prev','sm-poster-del','📺')" style="${w.poster?'':'display:none'}">Supprimer</button>
       </div>
     </div>
   `,()=>{
@@ -6302,28 +6195,11 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
         Marquer comme vu aujourd'hui <small style="color:var(--text-dim)">(décochez si vu il y a plus longtemps — ne sera pas compté dans le bilan annuel)</small>
       </label>
     </div>
-    <div class="form-group">
-      <label class="form-label">Poster</label>
-      <div style="display:flex;align-items:center;gap:12px">
-        <div id="fm-poster-prev" style="width:60px;height:88px;background:var(--surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:24px;overflow:hidden">
-          ${sf.poster?`<img src="${sf.poster}" style="width:100%;height:100%;object-fit:cover">`:'🎬'}
-        </div>
-        <label class="btn btn-secondary poster-upload-btn">📷 Choisir<input type="file" accept="image/*" style="display:none" onchange="handlePosterUpload(this,'fm-poster-prev')"></label>
-        <button class="btn btn-danger btn-sm" id="fm-poster-del" onclick="clearPosterBtn('fm-poster-prev','fm-poster-del')" style="${sf.poster?'':'display:none'}">Supprimer</button>
-      </div>
-    </div>
+    ${filmPosterFieldHTML(sf.poster||'')}
   `, () => {
-    const title = document.getElementById('fm-title').value.trim();
-    const year = document.getElementById('fm-year').value.trim();
-    const duration = document.getElementById('fm-duration').value.trim();
-    let valid = true;
-    const missing = [];
-    if(!title){ document.getElementById('fm-title').classList.add('invalid'); valid=false; missing.push('Titre'); } else document.getElementById('fm-title').classList.remove('invalid');
-    if(dirs.length===0){ document.getElementById('fm-dirs-wrap').classList.add('invalid'); valid=false; missing.push('Réalisateur(s)'); } else document.getElementById('fm-dirs-wrap').classList.remove('invalid');
-    if(!year){ document.getElementById('fm-year').classList.add('invalid'); valid=false; missing.push('Année'); } else document.getElementById('fm-year').classList.remove('invalid');
-    if(!duration){ document.getElementById('fm-duration').classList.add('invalid'); valid=false; missing.push('Durée'); } else document.getElementById('fm-duration').classList.remove('invalid');
-    if(countries.length===0){ document.getElementById('fm-countries-wrap').classList.add('invalid'); valid=false; missing.push('Pays'); } else document.getElementById('fm-countries-wrap').classList.remove('invalid');
-    if(!valid) { alert('Champs manquants ou invalides :\n• '+missing.join('\n• ')); return false; }
+    const result = validateFilmFormCommon(dirs, countries);
+    if(!result) return false;
+    const {title, year, duration} = result;
     const notes = document.getElementById('fm-notes').value.trim();
     const poster = window._capturedPoster!==undefined ? window._capturedPoster : (sf.poster||'');
 
@@ -6337,56 +6213,15 @@ function openSagaFilmCompletionForm(sagaId, filmId) {
     saveDB(); closeModal();
     if(window._sagasPageDraw) window._sagasPageDraw(); else render('sagas');
   });
-  renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
-  renderTags('fm-countries-wrap',countries,'fm-countries-input');
-  renderTags('fm-genres-wrap',genres,'fm-genres-input');
-  setupTagInput('fm-dirs-input','fm-dirs-wrap',dirs);
-  setupTagInput('fm-countries-input','fm-countries-wrap',countries);
-  setupTagInputWithAutocomplete('fm-genres-input','fm-genres-wrap',genres,knownGenres);
+  wireFilmTagInputs(dirs, countries, genres);
 
-  async function onTmdbMoviePick(picked) {
-    const box = document.getElementById('fm-tmdb-box');
-    box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress">Récupération des informations...</div></div>`;
-    try {
-      const details = await tmdbMovieDetails(picked.id);
-      document.getElementById('fm-title').value = details.title;
-      document.getElementById('fm-year').value = details.year;
-      if(details.duration) document.getElementById('fm-duration').value = details.duration;
-      dirs.length = 0; details.directors.forEach(d=>dirs.push(d));
-      renderTags('fm-dirs-wrap',dirs,'fm-dirs-input');
-      countries.length = 0; details.countries.forEach(c=>countries.push(c));
-      renderTags('fm-countries-wrap',countries,'fm-countries-input');
-      genres.length = 0; (details.genres||[]).forEach(g=>genres.push(g));
-      renderTags('fm-genres-wrap',genres,'fm-genres-input');
-      if(details.poster) {
-        window._capturedPoster = details.poster;
-        const prev = document.getElementById('fm-poster-prev');
-        if(prev) prev.innerHTML = `<img src="${details.poster}" style="width:100%;height:100%;object-fit:cover">`;
-        const del = document.getElementById('fm-poster-del');
-        if(del) del.style.display='';
-      }
-      if(details.overview) { const syn=document.getElementById('fm-synopsis'); if(syn&&!syn.value) syn.value=details.overview; }
-      renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
-      document.getElementById('fm-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis depuis TMDB — vérifiez avant d'enregistrer.</div>`);
-    } catch(e) {
-      box.innerHTML = `<div class="tmdb-search-wrap"><div style="color:var(--red);font-size:12px">Erreur lors de la récupération des détails.</div></div>`;
-    }
-  }
+  const onTmdbMoviePick = (picked) => applyTmdbMoviePick(picked, dirs, countries, genres);
   renderTmdbSearchBox('fm-tmdb-box', 'movie', onTmdbMoviePick);
 }
 
 function removeSagaFilm(sagaId, filmId) {
   const saga=(DB.sagas||[]).find(sg=>sg.id===sagaId); if(!saga) return;
   saga.films=saga.films.filter(f=>f.id!==filmId);
-  saveDB();
-  if(window._sagasPageDraw) window._sagasPageDraw(); else render('sagas');
-}
-
-function moveSagaFilm(sagaId, idx, dir) {
-  const saga=(DB.sagas||[]).find(sg=>sg.id===sagaId); if(!saga) return;
-  const newIdx=idx+dir;
-  if(newIdx<0||newIdx>=saga.films.length) return;
-  [saga.films[idx],saga.films[newIdx]]=[saga.films[newIdx],saga.films[idx]];
   saveDB();
   if(window._sagasPageDraw) window._sagasPageDraw(); else render('sagas');
 }
