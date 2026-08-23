@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.6.1';
+const APP_VERSION = 'v4.7.0';
 
 function loadDB() {
   try {
@@ -635,7 +635,8 @@ async function tmdbFetchFullMovieDetails(title, year, directors) {
     directors: best.tmdbDirectors || [],
     countries: normalizeCountryList((details.production_countries||[]).map(c=>c.iso_3166_1)),
     duration: details.runtime || 0,
-    genres: (details.genres||[]).map(g=>g.name)
+    genres: (details.genres||[]).map(g=>g.name),
+    synopsis: details.overview || ''
   };
 }
 
@@ -669,7 +670,8 @@ async function tmdbFetchFullSerieDetails(title, years, creators) {
     countries: normalizeCountryList(rawCountries),
     platforms: (details.networks||[]).map(n=>n.name),
     episodeDuration: (details.episode_run_time && details.episode_run_time[0]) || 0,
-    genres: (details.genres||[]).map(g=>g.name)
+    genres: (details.genres||[]).map(g=>g.name),
+    synopsis: details.overview || ''
   };
 }
 
@@ -3071,6 +3073,9 @@ function openFilmForm(id) {
         const savedFilm=DB.films.find(f=>f.id===savedId);
         if(savedFilm&&!sg.films.find(sf=>sf.id===savedId)){
           sg.films.push({id:savedFilm.id,title:savedFilm.title,year:savedFilm.year,directors:savedFilm.directors,duration:savedFilm.duration,poster:savedFilm.poster,unseen:false});
+          // Insert in chronological position by default; the user can still
+          // drag-and-drop to a different order afterwards from the saga card.
+          sg.films.sort((a,b)=>(parseInt(a.year)||9999)-(parseInt(b.year)||9999));
         }
       }
     }
@@ -3916,7 +3921,7 @@ const SeasonsEditor = {
             <div style="display:grid;grid-template-columns:28px 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px">
               <span style="font-size:12px;color:var(--text-dim);text-align:right">E${ei+1}</span>
               <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Titre" value="${esc(ep.title||'')}" oninput="setEpField(${si},${ei},'title',this.value)">
-              <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Date (JJ-MM-AAAA)" value="${esc(isoToDisplay(ep.airdate))}" onchange="setEpDate(${si},${ei},this.value)">
+              <input class="form-input" style="padding:5px 8px;font-size:12px" placeholder="Date (JJ-MM-AAAA)" value="${esc(this.isoToDisplay(ep.airdate))}" onchange="setEpDate(${si},${ei},this.value)">
             </div>`).join('')}
         </div>
       </div>`).join('')
@@ -4047,7 +4052,6 @@ function openSerieForm(id) {
 
   SeasonsEditor.init(seasons, specials, platforms);
   function renderSeasonsEditor() { SeasonsEditor.renderSeasons(); }
-  SeasonsEditor.renderSpecials();
 
   createModal(serie?'Modifier la série':'Ajouter une série', `
     <div id="sm-tmdb-box"></div>
@@ -4184,6 +4188,7 @@ function openSerieForm(id) {
   setupTagInputWithAutocomplete('sm-platforms-input','sm-platforms-wrap',platforms,knownPlatforms);
   setupTagInputWithAutocomplete('sm-genres-input','sm-genres-wrap',genres,knownGenres);
   renderSeasonsEditor();
+  SeasonsEditor.renderSpecials();
 
   // --- TMDB search & full season import ---
   async function onTmdbSeriePick(picked) {
@@ -4534,7 +4539,6 @@ function openWatchlistToSerieForm(w) {
 
   SeasonsEditor.init(seasons, specials, platforms);
   function renderSeasonsEditor() { SeasonsEditor.renderSeasons(); }
-  SeasonsEditor.renderSpecials();
 
   let tmdbId = w.tmdbId || null;
 
@@ -4606,6 +4610,7 @@ function openWatchlistToSerieForm(w) {
   setupTagInputWithAutocomplete('sm-platforms-input','sm-platforms-wrap',platforms,knownPlatforms);
   setupTagInputWithAutocomplete('sm-genres-input','sm-genres-wrap',genres,knownGenres);
   renderSeasonsEditor();
+  SeasonsEditor.renderSpecials();
 
   // If this watchlist entry was added via TMDB search, fetch the full series
   // details AND every season's episodes right away — the whole point of
@@ -5482,11 +5487,13 @@ async function backfillInfo(kind) {
         checkField('countries', details.countries, true);
         checkField('duration', details.duration, false);
         checkField('genres', details.genres, true);
+        checkField('synopsis', details.synopsis, false);
       } else {
         checkField('countries', details.countries, true);
         checkField('platforms', details.platforms, true);
         checkField('episodeDuration', details.episodeDuration, false);
         checkField('genres', details.genres, true);
+        checkField('synopsis', details.synopsis, false);
       }
     } catch(e) { notFound++; }
     done++;
@@ -5497,8 +5504,9 @@ async function backfillInfo(kind) {
   let applyAllApplied = false;
   if(conflicts.length) {
     log.innerHTML = `<span style="color:var(--gold)">${conflicts.length} différence(s) trouvée(s) entre vos données et TMDB.</span>`;
+    const truncate = (s) => s.length > 60 ? s.slice(0,60)+'…' : s;
     const applyAll = confirm(
-      `TMDB a trouvé ${conflicts.length} information(s) différente(s) de ce qui est déjà enregistré (ex: ${conflicts.slice(0,3).map(c=>`${c.field} de "${c.item.title}": "${c.oldVal}" → "${c.newStr}"`).join(' ; ')}${conflicts.length>3?'...':''}).\n\n` +
+      `TMDB a trouvé ${conflicts.length} information(s) différente(s) de ce qui est déjà enregistré (ex: ${conflicts.slice(0,3).map(c=>`${c.field} de "${c.item.title}": "${truncate(c.oldVal)}" → "${truncate(c.newStr)}"`).join(' ; ')}${conflicts.length>3?'...':''}).\n\n` +
       `Cliquez OK pour remplacer ces valeurs par celles de TMDB, ou Annuler pour garder vos données actuelles inchangées (seuls les champs vides ont été complétés).`
     );
     if(applyAll) {
@@ -5779,12 +5787,6 @@ function sagasPage(el, actions) {
   const typeFilterLabels = {all:'Tous types', 2:'Dilogies', 3:'Trilogies', '4plus':'Sagas (4+)'};
 
   function draw() {
-    // Sort films chronologically within each saga on every draw
-    (DB.sagas||[]).forEach(sg=>{
-      if(sg.films && sg.films.length > 1) {
-        sg.films.sort((a,b)=>(parseInt(a.year)||9999)-(parseInt(b.year)||9999));
-      }
-    });
     let sagas = [...(DB.sagas||[])];
     if(search) sagas = sagas.filter(sg=>sg.name.toLowerCase().includes(search.toLowerCase()));
     if(typeFilter==='2') sagas = sagas.filter(sg=>sagaFilmCount(sg)===2);
