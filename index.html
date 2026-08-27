@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.7.0';
+const APP_VERSION = 'v4.7.1';
 
 function loadDB() {
   try {
@@ -570,14 +570,19 @@ async function tmdbSeasonDetails(tvId, seasonNumber) {
     episodes: episodes.map((ep,i)=>({
       // Use fr title if real (non-generic), else fall back to en title, else empty
       title: !isGenericTitle(ep.name) ? ep.name : (epEn[i] && !isGenericTitle(epEn[i].name) ? epEn[i].name : ''),
-      airdate: ep.air_date || ''
+      airdate: ep.air_date || '',
+      runtime: ep.runtime || 0
     }))
   };
 }
 
 // Fetch every season's episodes for a series, sequentially, with progress callback.
+// Also returns avgEpisodeDuration, computed from actual per-episode runtimes —
+// used as a fallback when TMDB's series-level episode_run_time is empty
+// (a common gap in their data, especially for recent/non-US shows).
 async function tmdbFetchAllSeasons(tvId, seasonNumbers, onProgress) {
   const seasons = [];
+  const runtimes = [];
   for(let i=0;i<seasonNumbers.length;i++){
     if(onProgress) onProgress(i+1, seasonNumbers.length);
     const sd = await tmdbSeasonDetails(tvId, seasonNumbers[i]);
@@ -585,8 +590,10 @@ async function tmdbFetchAllSeasons(tvId, seasonNumbers, onProgress) {
       name: sd.name,
       episodes: sd.episodes.map(ep=>({seen:false, title:ep.title, airdate:ep.airdate}))
     });
+    sd.episodes.forEach(ep=>{ if(ep.runtime) runtimes.push(ep.runtime); });
   }
-  return seasons;
+  const avgEpisodeDuration = runtimes.length ? Math.round(runtimes.reduce((a,b)=>a+b,0)/runtimes.length) : 0;
+  return { seasons, avgEpisodeDuration };
 }
 
 // Lightweight genre-only fetch, used for retroactively backfilling genres
@@ -4213,10 +4220,13 @@ function openSerieForm(id) {
 
       // Now fetch every season's episodes — this is the slow part, show progress.
       box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress" id="sm-tmdb-progress">Récupération des saisons (0/${details.seasonNumbers.length})...</div></div>`;
-      const fetchedSeasons = await tmdbFetchAllSeasons(details.tmdbId, details.seasonNumbers, (done,total)=>{
+      const { seasons: fetchedSeasons, avgEpisodeDuration } = await tmdbFetchAllSeasons(details.tmdbId, details.seasonNumbers, (done,total)=>{
         const p = document.getElementById('sm-tmdb-progress');
         if(p) p.textContent = `Récupération des saisons (${done}/${total})...`;
       });
+      // TMDB's series-level episode_run_time is often empty — fall back to the
+      // average of actual per-episode runtimes just fetched above.
+      if(!details.episodeDuration && avgEpisodeDuration) document.getElementById('sm-dur').value = avgEpisodeDuration;
       // Preserve any "seen" flags already set for matching season/episode indices
       fetchedSeasons.forEach((newSn,si)=>{
         const oldSn = seasons[si];
@@ -4628,10 +4638,13 @@ function openWatchlistToSerieForm(w) {
 
         const banner = document.getElementById('wl2s-banner');
         if(banner) banner.textContent = `✓ Récupération des saisons (0/${details.seasonNumbers.length})...`;
-        const fetchedSeasons = await tmdbFetchAllSeasons(details.tmdbId, details.seasonNumbers, (done,total)=>{
+        const { seasons: fetchedSeasons, avgEpisodeDuration } = await tmdbFetchAllSeasons(details.tmdbId, details.seasonNumbers, (done,total)=>{
           const b = document.getElementById('wl2s-banner');
           if(b) b.textContent = `✓ Récupération des saisons (${done}/${total})...`;
         });
+        // TMDB's series-level episode_run_time is often empty — fall back to
+        // the average of actual per-episode runtimes just fetched above.
+        if(!details.episodeDuration && avgEpisodeDuration) document.getElementById('sm-dur').value = avgEpisodeDuration;
         seasons.length = 0;
         fetchedSeasons.forEach(sn=>seasons.push(sn));
         renderSeasonsEditor();
