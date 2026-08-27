@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.7.1';
+const APP_VERSION = 'v4.7.2';
 
 function loadDB() {
   try {
@@ -4179,7 +4179,10 @@ function openSerieForm(id) {
     window._serieDetailOrigin = null;
     if(originSerieId) {
       openSerieDetailModal(originSerieId);
-      return;
+      // We already closed the edit modal and opened the detail modal above —
+      // tell handleModalSave not to run its own closeModal(), which would
+      // otherwise immediately wipe out the detail modal we just opened.
+      return false;
     }
     const cur=document.querySelector('.nav-item.active')?.dataset.page||'series';
     if(cur==='series'&&window._seriesPageDraw) window._seriesPageDraw();
