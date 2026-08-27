@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.7.2';
+const APP_VERSION = 'v4.7.3';
 
 function loadDB() {
   try {
@@ -2570,7 +2570,7 @@ function animateContinueList(sid) {
       epDiv.textContent = epObj?.title ? `S${nextEp.s}E${nextEp.e} — ${epObj.title} à regarder` : `S${nextEp.s}E${nextEp.e} à regarder`;
     }
     const countDiv = card.querySelector('.continue-count');
-    if(countDiv) countDiv.textContent = `${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% (${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})`;
+    if(countDiv) countDiv.innerHTML = `${serieSeenEps(s)}/${serieTotalEps(s)} ep — ${pct}% <span style="opacity:.7">(${serieTotalEps(s)-serieSeenEps(s)} restant${(serieTotalEps(s)-serieSeenEps(s))>1?'s':''})</span>`;
     const btn = card.querySelector('.btn-primary');
     if(btn && nextEp) btn.setAttribute('onclick', `dashMarkEpSeen('${sid}',${nextEp.si},${nextEp.ei})`);
   }
