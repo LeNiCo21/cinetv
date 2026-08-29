@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.7.3';
+const APP_VERSION = 'v4.8.0';
 
 function loadDB() {
   try {
@@ -4343,6 +4343,15 @@ function openWatchlistForm(type, id) {
   const wlCreators=item?parseNames(item.creators||item.director||[]):[];
   const wlPlatforms=item?parseNames(item.platforms||item.platform||[]):[];
   let wlTmdbId = item?.tmdbId || null;
+  // Series-only: full season/episode data fetched from TMDB up front, so that
+  // marking the watchlist entry as "Vu" later can go straight to a real
+  // series with episode 1 already watched, without reopening a form.
+  let wlSeasons = item?.seasons ? JSON.parse(JSON.stringify(item.seasons)) : [];
+  let wlCountries = item?.countries ? parseNames(item.countries) : [];
+  let wlGenres = item?.genres ? parseNames(item.genres) : [];
+  let wlEpisodeDuration = item?.episodeDuration || null;
+  let wlStatus = item?.status || null;
+  let wlSynopsis = item?.synopsis || '';
   window._capturedPoster = undefined;
   if(item) window._capturedPoster = item.poster||'';
   const posterFallback = t==='film' ? '🎬' : '📺';
@@ -4380,8 +4389,12 @@ function openWatchlistForm(type, id) {
     const notes=document.getElementById('wl-notes')?.value?.trim();
     const poster=window._capturedPoster!==undefined?window._capturedPoster:(item?.poster||'');
     if(!DB.watchlist) DB.watchlist=[];
-    if(item){ Object.assign(item,{title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId,poster}); }
-    else { DB.watchlist.push({id:uid(),type:t,title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId,poster}); }
+    const extra = t==='serie' ? {
+      seasons:[...wlSeasons], countries:[...wlCountries], genres:[...wlGenres],
+      episodeDuration:wlEpisodeDuration, status:wlStatus, synopsis:wlSynopsis
+    } : {};
+    if(item){ Object.assign(item,{title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId,poster,...extra}); }
+    else { DB.watchlist.push({id:uid(),type:t,title,year,creators:[...wlCreators],platforms:[...wlPlatforms],notes,tmdbId:wlTmdbId,poster,...extra}); }
     saveDB(); closeModal();
     if(window._wlDraw) window._wlDraw();
   });
@@ -4415,6 +4428,20 @@ function openWatchlistForm(type, id) {
         renderTags('wl-creators-wrap',wlCreators,'wl-creators-input');
         wlPlatforms.length = 0; details.platforms.forEach(p=>wlPlatforms.push(p));
         renderTags('wl-platforms-wrap',wlPlatforms,'wl-platforms-input');
+        wlCountries = details.countries||[];
+        wlGenres = details.genres||[];
+        wlStatus = details.status;
+        wlSynopsis = details.overview||'';
+        // Fetch every season's episodes right away — the whole point of this
+        // prefetch is that marking this entry "Vu" later can go straight to
+        // a real series (episode 1 already watched) with no extra form.
+        box.innerHTML = `<div class="tmdb-search-wrap"><div class="tmdb-progress" id="wl-tmdb-progress">Récupération des saisons (0/${details.seasonNumbers.length})...</div></div>`;
+        const { seasons: fetchedSeasons, avgEpisodeDuration } = await tmdbFetchAllSeasons(details.tmdbId, details.seasonNumbers, (done,total)=>{
+          const p = document.getElementById('wl-tmdb-progress');
+          if(p) p.textContent = `Récupération des saisons (${done}/${total})...`;
+        });
+        wlSeasons.length = 0; fetchedSeasons.forEach(sn=>wlSeasons.push(sn));
+        wlEpisodeDuration = details.episodeDuration || avgEpisodeDuration || null;
       }
       if(details.poster) {
         window._capturedPoster = details.poster;
@@ -4425,7 +4452,10 @@ function openWatchlistForm(type, id) {
       }
       wlTmdbId = picked.id;
       renderTmdbSearchBox('wl-tmdb-box', t==='film'?'movie':'tv', onWlTmdbPick);
-      document.getElementById('wl-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Champs pré-remplis — toutes les infos seront récupérées automatiquement quand vous marquerez "Vu".</div>`);
+      const confirmMsg = t==='serie'
+        ? `✓ Champs et épisodes pré-remplis — "Vu" marquera directement le premier épisode, sans repasser par un formulaire.`
+        : `✓ Champs pré-remplis — toutes les infos seront récupérées automatiquement quand vous marquerez "Vu".`;
+      document.getElementById('wl-tmdb-box').insertAdjacentHTML('afterbegin', `<div style="font-size:12px;color:var(--green);margin-bottom:8px">${confirmMsg}</div>`);
     } catch(e) {
       box.innerHTML = `<div class="tmdb-search-wrap"><div style="color:var(--red);font-size:12px">Erreur lors de la récupération des détails.</div></div>`;
     }
@@ -4445,8 +4475,38 @@ function deleteWatchlist(id) {
 
 // "Marquer vu" depuis la watchlist : l'item est retiré temporairement, mais
 // restauré si l'utilisateur clique Annuler ou ✕ sans valider le formulaire.
+//
+// Fast path for series: if the watchlist entry already has its seasons/
+// episodes prefetched (added via TMDB search), skip the form entirely —
+// create the real series straight away with episode 1 marked as watched,
+// then show its detail card. No prefetched data (older entries, or added
+// without TMDB) still falls back to the regular conversion form below.
 function convertWatchlist(id) {
   const w=(DB.watchlist||[]).find(x=>x.id===id); if(!w) return;
+
+  if(w.type==='serie' && w.seasons && w.seasons.length && w.seasons[0]?.episodes?.length) {
+    DB.watchlist = DB.watchlist.filter(x=>x.id!==id);
+    const newId = uid();
+    const seasons = JSON.parse(JSON.stringify(w.seasons));
+    seasons[0].episodes[0].seen = true;
+    DB.series.push({
+      id:newId, title:w.title, creators:[...(w.creators||[])], countries:[...(w.countries||[])],
+      platforms:[...(w.platforms||[])], genres:[...(w.genres||[])], years:w.year||'',
+      status: w.status||'encours', episodeDuration: w.episodeDuration||null,
+      synopsis: w.synopsis||'', seasons, specials:[], poster:w.poster||'',
+      abandoned:false, lastInteracted:Date.now(), tmdbId:w.tmdbId||null
+    });
+    logWatch({type:'episode', serieId:newId, seasonIndex:0, episodeIndex:0});
+    saveDB();
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+    document.querySelector('[data-page="series"]').classList.add('active');
+    document.getElementById('topbar-title').textContent='Séries';
+    render('series');
+    if(window._wlDraw) window._wlDraw();
+    setTimeout(()=>openSerieDetailModal(newId),50);
+    return;
+  }
+
   window._wlPendingConvert = {id, item: JSON.parse(JSON.stringify(w))};
   DB.watchlist=DB.watchlist.filter(x=>x.id!==id);
   saveDB();
