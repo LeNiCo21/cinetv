@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.8.0';
+const APP_VERSION = 'v4.8.1';
 
 function loadDB() {
   try {
@@ -4668,11 +4668,21 @@ function openWatchlistToSerieForm(w) {
         if(!b.airdate) return -1;
         return new Date(a.airdate) - new Date(b.airdate);
       })}));
+    // This form's whole purpose is "mark as watched" — default the very
+    // first episode to seen, same as the fast path when data is prefetched.
+    if(cleanSeasons[0]?.episodes[0]) cleanSeasons[0].episodes[0].seen = true;
     const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
       .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
-    DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster,abandoned:false,lastInteracted:0,tmdbId});
+    const newId = uid();
+    DB.series.push({id:newId,title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,poster,abandoned:false,lastInteracted:Date.now(),tmdbId});
+    logWatch({type:'episode', serieId:newId, seasonIndex:0, episodeIndex:0});
     window._wlPendingConvert = null;
-    saveDB(); closeModal(); render('series');
+    saveDB(); closeModal();
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+    document.querySelector('[data-page="series"]').classList.add('active');
+    document.getElementById('topbar-title').textContent='Séries';
+    render('series');
+    setTimeout(()=>openSerieDetailModal(newId),50);
   });
   renderTags('sm-creators-wrap',creators,'sm-creators-input');
   renderTags('sm-countries-wrap',countries,'sm-countries-input');
