@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.9.0';
+const APP_VERSION = 'v4.10.0';
 
 function loadDB() {
   try {
@@ -2287,18 +2287,10 @@ function fireworksInModal(sid) {
   setTimeout(()=>{ overlay.style.transition='opacity 0.5s'; overlay.style.opacity='0'; setTimeout(()=>overlay.remove(), 500); }, 3000);
 }
 
-// Quietly patch just the top summary numbers on the dashboard (films/series
-// count, episodes watched, total duration) without a full page re-render —
-// used when the change can't possibly affect "Continuer le visionnage"
-// list membership (adding a film, or ticking an episode of a series
-// already shown there). No-ops harmlessly if the dashboard isn't open.
-function updateDashboardFilmStats() {
-  const countEl = document.getElementById('stat-films-count');
-  const durEl = document.getElementById('stat-films-dur');
-  if(!countEl && !durEl) return;
-  if(countEl) countEl.textContent = DB.films.length;
-  if(durEl) durEl.textContent = fmtDuration(DB.films.reduce((a,f)=>a+(parseInt(f.duration)||0),0));
-}
+// Quietly patch just the top summary numbers on the dashboard (episodes
+// watched, total duration) without a full page re-render — gives instant
+// feedback right where the action happened. No-ops harmlessly if the
+// dashboard isn't open.
 function updateDashboardSeriesStats() {
   const epsEl = document.getElementById('stat-series-eps');
   const durEl = document.getElementById('stat-series-dur');
@@ -2307,13 +2299,40 @@ function updateDashboardSeriesStats() {
   if(durEl) durEl.textContent = fmtDuration(DB.series.reduce((a,s)=>a+serieSeenMinAll(s),0));
 }
 
+// Fully re-renders the dashboard (so every table/chart — top 20, by genre,
+// by country, by platform, by status, creators, etc. — reflects the latest
+// data) while preserving scroll position, the active mobile Films/Séries
+// tab, and any expanded "Voir tout" sections, so it doesn't feel like a
+// jarring page reload. No-ops harmlessly if the dashboard isn't open.
+function refreshDashboardPreservingState() {
+  const contentEl = document.getElementById('content');
+  if(!contentEl || !document.getElementById('dash-panels-track')) return;
+  const scrollPos = contentEl.scrollTop;
+  const activeTab = window._activeDashTab || 'films';
+  const expandedIds = ['fc','fg','sc','sg','pl','dirs','top20','dec','yr']
+    .filter(id => { const e=document.getElementById('more-'+id); return e && e.style.display!=='none'; });
+  const continueMoreOpen = document.getElementById('continue-more-list')?.style.display==='flex';
+
+  render('dashboard');
+  restoreDashTab(activeTab);
+  expandedIds.forEach(id=>{
+    const e = document.getElementById('more-'+id);
+    if(!e) return;
+    e.style.display = '';
+    const btn = e.closest('.card')?.querySelector('.show-more-btn');
+    if(btn) btn.textContent = btn.textContent.replace('▼','▲');
+  });
+  if(continueMoreOpen) {
+    const e = document.getElementById('continue-more-list');
+    const btn = document.getElementById('continue-more-btn');
+    if(e) e.style.display = 'flex';
+    if(btn) btn.textContent = btn.textContent.replace('▼','▲');
+  }
+  contentEl.scrollTop = scrollPos;
+}
+
 function syncDashboardInBackground() {
-  // Silently update the dashboard continue-watching if it's rendered
-  const continueList = document.getElementById('continue-list');
-  if(!continueList) return;
-  // Trigger a quiet re-render of just the dashboard
-  const cur = document.querySelector('.nav-item.active')?.dataset.page;
-  if(cur === 'dashboard' || !cur) render('dashboard');
+  refreshDashboardPreservingState();
 }
 
 function modalMarkEpSeen(sid, si, ei) {
@@ -2623,6 +2642,11 @@ function animateContinueList(sid) {
       }
     });
   }
+
+  // Let the immediate card/stat-card feedback above play out, then quietly
+  // refresh the rest of the dashboard's tables (top 10s, by genre/country/
+  // platform/status...) so they reflect this episode too.
+  setTimeout(refreshDashboardPreservingState, 450);
 }
 
 
@@ -3117,7 +3141,7 @@ function openFilmForm(id) {
       }
     }
     const curPage = document.querySelector('.nav-item.active')?.dataset.page||'films';
-    if(curPage==='dashboard') updateDashboardFilmStats();
+    if(curPage==='dashboard') refreshDashboardPreservingState();
     else render(curPage);
   });
   wireFilmTagInputs(dirs, countries, genres);
@@ -3688,19 +3712,32 @@ function toggleSpecial(sid, ei) {
   const s = DB.series.find(x=>x.id===sid); if(!s) return;
   if(!s.specials) s.specials = [];
   const ep = s.specials[ei]; if(!ep) return;
-  const nowSeen = !ep.seen;
-  ep.seen = nowSeen;
-  s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
-  if(nowSeen) {
-    const today = confirm("Marquer cet épisode spécial comme vu aujourd'hui ?\n\nOK = aujourd'hui (compté dans le bilan annuel)\nAnnuler = vu il y a plus longtemps (non compté dans le bilan)");
-    if(today) logWatch({type:'episode', serieId:sid, seasonIndex:-1, episodeIndex:ei});
-  } else {
+
+  if(ep.seen) {
+    ep.seen = false;
+    s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
     unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===-1 && e.episodeIndex===ei);
+    saveDB();
+    patchSerieDetailHeader(sid);
+    updateSerieRowProgress(sid);
+    refreshSerieDetailModal(sid);
+    return;
   }
-  saveDB();
-  patchSerieDetailHeader(sid);
-  updateSerieRowProgress(sid);
-  refreshSerieDetailModal(sid);
+
+  askWatchDate((choice) => {
+    if(choice.mode === 'cancel') return;
+    ep.seen = true;
+    s.lastInteracted = Date.now(); _lastInteractedSerieId = sid;
+    if(choice.mode === 'now') {
+      logWatch({type:'episode', serieId:sid, seasonIndex:-1, episodeIndex:ei});
+    } else if(choice.mode === 'date') {
+      logWatch({type:'episode', serieId:sid, seasonIndex:-1, episodeIndex:ei, date:new Date(choice.date+'T12:00:00').toISOString()});
+    }
+    saveDB();
+    patchSerieDetailHeader(sid);
+    updateSerieRowProgress(sid);
+    refreshSerieDetailModal(sid);
+  });
 }
 
 function toggleSpecialsAllSeen(sid) {
@@ -3750,23 +3787,90 @@ function toggleSeasonEps(sid,si) {
   }
 }
 
+// Custom "when did you watch this?" prompt — replaces the native confirm()
+// dialog with something matching the app's own look. Stacks on top of the
+// currently-open series detail modal (its own overlay, own container) so
+// the detail modal underneath isn't touched/reset while the choice is made.
+// Calls onPick with one of: {mode:'now'}, {mode:'unknown'}, {mode:'date',date:'YYYY-MM-DD'}, {mode:'cancel'}.
+function askWatchDate(onPick) {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.style.zIndex = '1050';
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:360px">
+      <div class="modal-header">
+        <div class="modal-title">Vu quand ?</div>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-primary" id="wd-now" style="width:100%;justify-content:center">🕐 À l'instant</button>
+          <button class="btn btn-secondary" id="wd-unknown" style="width:100%;justify-content:center">❓ Date inconnue</button>
+          <button class="btn btn-secondary" id="wd-other" style="width:100%;justify-content:center">📅 Autre date</button>
+          <div id="wd-date-picker" style="display:none;margin-top:2px">
+            <input type="date" id="wd-date-input" class="form-input" style="width:100%" max="${new Date().toISOString().slice(0,10)}">
+            <button class="btn btn-primary" id="wd-date-confirm" style="width:100%;justify-content:center;margin-top:8px">Valider cette date</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:center">
+        <button class="btn btn-secondary" id="wd-cancel" style="width:100%;justify-content:center">Annuler — ne pas marquer vu</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  function finish(result) {
+    wrap.remove();
+    onPick(result);
+  }
+  wrap.querySelector('#wd-now').onclick = () => finish({mode:'now'});
+  wrap.querySelector('#wd-unknown').onclick = () => finish({mode:'unknown'});
+  wrap.querySelector('#wd-other').onclick = (e) => {
+    wrap.querySelector('#wd-date-picker').style.display = 'block';
+    e.target.style.display = 'none';
+    wrap.querySelector('#wd-date-input').focus();
+  };
+  wrap.querySelector('#wd-date-confirm').onclick = () => {
+    const val = wrap.querySelector('#wd-date-input').value;
+    if(!val) return;
+    finish({mode:'date', date: val});
+  };
+  wrap.querySelector('#wd-cancel').onclick = () => finish({mode:'cancel'});
+  wrap.addEventListener('click', (e) => { if(e.target === wrap) finish({mode:'cancel'}); });
+}
+
 function toggleEp(sid,si,ei) {
   const s=DB.series.find(x=>x.id===sid); if(!s) return;
-  const nowSeen = !s.seasons[si].episodes[ei].seen;
-  s.seasons[si].episodes[ei].seen = nowSeen;
-  s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
-  if(nowSeen) {
-    const today = confirm("Marquer cet épisode comme vu aujourd'hui ?\n\nOK = aujourd'hui (compté dans le bilan annuel)\nAnnuler = vu il y a plus longtemps (non compté dans le bilan)");
-    if(today) logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
-  } else {
+  const ep = s.seasons[si].episodes[ei];
+
+  if(ep.seen) {
+    // Un-marking: no prompt needed.
+    ep.seen = false;
+    s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
     unlogWatch(e=>e.type==='episode' && e.serieId===sid && e.seasonIndex===si && e.episodeIndex===ei);
+    saveDB();
+    patchEpisodeUI(s, si, ei);
+    patchSerieDetailHeader(sid);
+    updateSerieRowProgress(sid);
+    return;
   }
-  saveDB();
-  patchEpisodeUI(s, si, ei);
-  patchSerieDetailHeader(sid);
-  updateSerieRowProgress(sid);
-  if(nowSeen && findNextEpisode(s) === null && !hasFutureUnseenEpisodes(s)) fireworksInModal(sid);
-  if(nowSeen) syncDashboardInBackground();
+
+  askWatchDate((choice) => {
+    if(choice.mode === 'cancel') return; // episode stays unseen, nothing changes
+    ep.seen = true;
+    s.lastInteracted=Date.now(); _lastInteractedSerieId=sid;
+    if(choice.mode === 'now') {
+      logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei});
+    } else if(choice.mode === 'date') {
+      logWatch({type:'episode', serieId:sid, seasonIndex:si, episodeIndex:ei, date:new Date(choice.date+'T12:00:00').toISOString()});
+    }
+    // mode 'unknown': mark seen, log nothing (not counted in the annual report)
+    saveDB();
+    patchEpisodeUI(s, si, ei);
+    patchSerieDetailHeader(sid);
+    updateSerieRowProgress(sid);
+    if(findNextEpisode(s) === null && !hasFutureUnseenEpisodes(s)) fireworksInModal(sid);
+    if(choice.mode !== 'unknown') syncDashboardInBackground();
+  });
 }
 
 // Patches just the top summary block of an open serie-detail modal (progress
@@ -4169,6 +4273,7 @@ function openSerieForm(id) {
         })
     }));
     const poster=window._capturedPoster!==undefined?window._capturedPoster:(serie?.poster||'');
+    let newlyCreatedId = null;
 
     if(serie){
       cleanSeasons.forEach((newSn,si)=>{
@@ -4194,7 +4299,8 @@ function openSerieForm(id) {
       if(duplicate && !confirm(`Une série "${title}" existe déjà. Ajouter quand même ?`)) return false;
       const cleanSpecials = specials.map(sp=>({seen:false,title:sp.title||'',airdate:sp.airdate||'',duration:sp.duration||null}))
         .sort((a,b)=>{ if(!a.airdate&&!b.airdate) return 0; if(!a.airdate) return 1; if(!b.airdate) return -1; return new Date(a.airdate)-new Date(b.airdate); });
-      DB.series.push({id:uid(),title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,synopsis,poster,abandoned:false,lastInteracted:0});
+      newlyCreatedId = uid();
+      DB.series.push({id:newlyCreatedId,title,creators:[...creators],countries:[...countries],platforms:[...platforms],genres:[...genres],tmdbId,years,status,episodeDuration:parseInt(epDur),seasons:cleanSeasons,specials:cleanSpecials,synopsis,poster,abandoned:false,lastInteracted:0});
     }
     saveDB(); closeModal();
     const originSerieId = window._serieDetailOrigin || null;
@@ -4209,6 +4315,11 @@ function openSerieForm(id) {
     const cur=document.querySelector('.nav-item.active')?.dataset.page||'series';
     if(cur==='series'&&window._seriesPageDraw) window._seriesPageDraw();
     else render(cur);
+    if(newlyCreatedId) {
+      // Just added a brand new series — open its detail card directly,
+      // no need to go hunting for it in the list afterwards.
+      setTimeout(()=>openSerieDetailModal(newlyCreatedId),50);
+    }
   });
 
   renderTags('sm-creators-wrap',creators,'sm-creators-input');
@@ -5064,10 +5175,8 @@ function wrappedPage(el, actions) {
     const data = buildWrappedData(year);
     if(!data){ alert("Pas assez de données pour générer un bilan cette année."); return; }
     const narrative = buildWrappedNarrative(data);
-    if(!confirm(`Générer le bilan ${year} ? Seuls les visionnages enregistrés jusqu'à maintenant seront inclus — tout ce que vous marquerez comme vu après cette génération comptera pour le bilan ${year+1} (vos films/séries eux-mêmes restent intacts, seules les dates de visionnage de ${year} sont réinitialisées).`)) return;
+    if(!confirm(`Générer le bilan ${year} ? Seuls les visionnages enregistrés jusqu'à maintenant seront inclus — tout ce que vous marquerez comme vu après cette génération comptera pour le bilan ${year+1}.`)) return;
     DB.wrappeds.push({ year, generatedAt: new Date().toISOString(), data, narrative });
-    // Reset only this year's watch log entries — never touches films/series/sagas data.
-    DB.watchLog = DB.watchLog.filter(e=>new Date(e.date).getFullYear() !== year);
     saveDB();
     startWrappedReveal(data, narrative);
   };
