@@ -313,7 +313,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);display:f
 // STATE & PERSISTENCE
 // ============================================================
 let DB = { films:[], series:[], watchlist:[], sagas:[], watchLog:[], wrappeds:[] };
-const APP_VERSION = 'v4.8.1';
+const APP_VERSION = 'v4.9.0';
 
 function loadDB() {
   try {
@@ -1987,8 +1987,8 @@ function dashboard(el, actions) {
           <div class="dash-side" data-dashside="films">
         <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">🎬 Films</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div class="stat-card"><div class="stat-val">${films.length}</div><div class="stat-label">Films vus</div></div>
-          <div class="stat-card"><div class="stat-val" style="font-size:18px">${fmtDuration(totalFilmMin)}</div><div class="stat-label">Durée totale</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-films-count">${films.length}</div><div class="stat-label">Films vus</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-films-dur" style="font-size:18px">${fmtDuration(totalFilmMin)}</div><div class="stat-label">Durée totale</div></div>
         </div>
 
         ${(()=>{ return ''; })()}
@@ -2047,8 +2047,8 @@ function dashboard(el, actions) {
         <div style="font-family:var(--font-display);font-size:20px;color:var(--gold);margin-bottom:4px">📺 Séries</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
           <div class="stat-card"><div class="stat-val">${allSeries.length}</div><div class="stat-label">Séries</div></div>
-          <div class="stat-card"><div class="stat-val">${totalSeriesEps}</div><div class="stat-label">Épisodes vus</div></div>
-          <div class="stat-card"><div class="stat-val" style="font-size:15px">${fmtDuration(totalSeriesMin)}</div><div class="stat-label">Durée totale</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-series-eps">${totalSeriesEps}</div><div class="stat-label">Épisodes vus</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-series-dur" style="font-size:15px">${fmtDuration(totalSeriesMin)}</div><div class="stat-label">Durée totale</div></div>
         </div>
 
         ${inProgress.length ? `
@@ -2285,6 +2285,26 @@ function fireworksInModal(sid) {
   if(bodyPos === 'static') body.style.position = 'relative';
   body.appendChild(overlay);
   setTimeout(()=>{ overlay.style.transition='opacity 0.5s'; overlay.style.opacity='0'; setTimeout(()=>overlay.remove(), 500); }, 3000);
+}
+
+// Quietly patch just the top summary numbers on the dashboard (films/series
+// count, episodes watched, total duration) without a full page re-render —
+// used when the change can't possibly affect "Continuer le visionnage"
+// list membership (adding a film, or ticking an episode of a series
+// already shown there). No-ops harmlessly if the dashboard isn't open.
+function updateDashboardFilmStats() {
+  const countEl = document.getElementById('stat-films-count');
+  const durEl = document.getElementById('stat-films-dur');
+  if(!countEl && !durEl) return;
+  if(countEl) countEl.textContent = DB.films.length;
+  if(durEl) durEl.textContent = fmtDuration(DB.films.reduce((a,f)=>a+(parseInt(f.duration)||0),0));
+}
+function updateDashboardSeriesStats() {
+  const epsEl = document.getElementById('stat-series-eps');
+  const durEl = document.getElementById('stat-series-dur');
+  if(!epsEl && !durEl) return;
+  if(epsEl) epsEl.textContent = DB.series.reduce((a,s)=>a+serieSeenEpsAll(s),0);
+  if(durEl) durEl.textContent = fmtDuration(DB.series.reduce((a,s)=>a+serieSeenMinAll(s),0));
 }
 
 function syncDashboardInBackground() {
@@ -2574,6 +2594,7 @@ function animateContinueList(sid) {
     const btn = card.querySelector('.btn-primary');
     if(btn && nextEp) btn.setAttribute('onclick', `dashMarkEpSeen('${sid}',${nextEp.si},${nextEp.ei})`);
   }
+  updateDashboardSeriesStats();
 
   // Move card to top if it's the most recently interacted
   if(list && card) {
@@ -3096,7 +3117,8 @@ function openFilmForm(id) {
       }
     }
     const curPage = document.querySelector('.nav-item.active')?.dataset.page||'films';
-    render(curPage);
+    if(curPage==='dashboard') updateDashboardFilmStats();
+    else render(curPage);
   });
   wireFilmTagInputs(dirs, countries, genres);
 
